@@ -13,7 +13,7 @@ type Config struct {
 	HTTPPort                string
 	DatabaseURL             string
 	AppTimezone             string
-	WakaTimeAPIKey          string
+	AppAPIKey               string
 	KeystrokeTimeoutMinutes int
 	WritesOnly              bool
 	CORSAllowOrigins        []string
@@ -36,7 +36,7 @@ func Load() *Config {
 		HTTPPort:                getEnv("PORT", "8080"),
 		DatabaseURL:             getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/waka_personal?sslmode=disable"),
 		AppTimezone:             getEnv("APP_TIMEZONE", "UTC"),
-		WakaTimeAPIKey:          getEnv("WAKATIME_API_KEY", ""),
+		AppAPIKey:               getEnv("APP_API_KEY", ""),
 		KeystrokeTimeoutMinutes: getEnvInt("KEYSTROKE_TIMEOUT_MINUTES", 15),
 		WritesOnly:              getEnvBool("WRITES_ONLY", false),
 		CORSAllowOrigins:        getEnvList("CORS_ALLOW_ORIGINS", []string{"*"}),

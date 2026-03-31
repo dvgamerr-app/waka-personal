@@ -9,9 +9,24 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/rs/zerolog/log"
 )
 
 const defaultGooseTable = "goose_db_version"
+
+type gooseZerologAdapter struct{}
+
+func (gooseZerologAdapter) Fatalf(format string, v ...any) {
+	log.Fatal().
+		Str("component", "goose").
+		Msg(strings.TrimSpace(fmt.Sprintf(format, v...)))
+}
+
+func (gooseZerologAdapter) Printf(format string, v ...any) {
+	log.Info().
+		Str("component", "goose").
+		Msg(strings.TrimSpace(fmt.Sprintf(format, v...)))
+}
 
 func ApplyMigrations(ctx context.Context, databaseURL, dir, tableName string) error {
 	return RunMigrationCommand(ctx, databaseURL, dir, tableName, false, "up")
@@ -25,6 +40,7 @@ func RunMigrationCommand(
 	args ...string,
 ) error {
 	dir = filepath.Clean(dir)
+	goose.SetLogger(gooseZerologAdapter{})
 
 	switch command {
 	case "create":
