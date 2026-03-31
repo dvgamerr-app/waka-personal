@@ -1,0 +1,53 @@
+{
+  "user": {
+    "id": "06633b1c-3ba7-44c2-ab5d-08e47ccc87ab",
+    "username": "dvgamerr",
+    "display_name": "Kananek T",
+    "full_name": "Kananek T",
+    "email": "info.dvgamer@gmail.com",
+    "photo": "https://wakatime.com/photo/06633b1c-3ba7-44c2-ab5d-08e47ccc87ab",
+    "profile_url": "https://wakatime.com/@dvgamerr",
+    "timezone": "Asia/Bangkok",
+    "plan": "free",
+    "timeout": 15,
+    "writes_only": true,
+    "city": {
+      "name": "Bangkok",
+      "country": "Thailand",
+      "timezone": "Asia/Bangkok"
+    },
+    "last_branch": "main",
+    "last_language": "TypeScript",
+    "last_plugin": "vscode-wakatime/30.0.1",
+    "last_project": "jirasync-hub-app"
+  },
+  "range": {
+    "start": 1470416400,
+    "end": 1774976399
+  },
+  "days": [
+    {
+      "date": "2016-08-06",
+      "heartbeats": [
+        {
+          "id": "494e826c-2d23-4cc4-a1be-f50e6e80c67c",
+          "time": 1470464485.256275,
+          "created_at": "2016-08-06T06:21:41Z",
+          "entity": "C:\\Users\\tester\\repo\\style.css",
+          "type": "file",
+          "category": "Coding",
+          "project": "UI-MidBack-Office",
+          "branch": "master",
+          "language": "CSS",
+          "dependencies": [],
+          "project_root_count": 4,
+          "cursorpos": 7140,
+          "lines": 482,
+          "is_write": false,
+          "machine_name_id": "dc5a8ccb-eb13-45b2-aaae-a6a7aa721a6a",
+          "user_agent_id": "308d31b6-4cb5-4665-9848-21bd4c305ca2"
+        }
+      ]
+    }
+  ]
+}
