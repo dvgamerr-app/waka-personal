@@ -375,7 +375,7 @@ func (s *Store) UpsertProfileSnapshot(ctx context.Context, snapshot domain.Profi
 	return nil
 }
 
-func (s *Store) UpsertImportBatch(ctx context.Context, batch domain.ImportBatch) (*domain.ImportBatch, error) {
+func (s *Store) CreateImportBatch(ctx context.Context, batch domain.ImportBatch) (*domain.ImportBatch, error) {
 	var result domain.ImportBatch
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO import_snapshot (
@@ -385,16 +385,6 @@ func (s *Store) UpsertImportBatch(ctx context.Context, batch domain.ImportBatch)
 			$1, $2, $3, $4, $5, $6, $7,
 			$8, $9, $10, NOW()
 		)
-		ON CONFLICT (source_sha256) DO UPDATE
-		SET source_path = EXCLUDED.source_path,
-			source_format = EXCLUDED.source_format,
-			status = EXCLUDED.status,
-			range_start = EXCLUDED.range_start,
-			range_end = EXCLUDED.range_end,
-			imported_rows = EXCLUDED.imported_rows,
-			skipped_rows = EXCLUDED.skipped_rows,
-			error_text = EXCLUDED.error_text,
-			updated_at = NOW()
 		RETURNING id, source_path, source_format, source_sha256, status, range_start, range_end, imported_rows, skipped_rows, error_text
 	`,
 		batch.ID,
@@ -420,7 +410,7 @@ func (s *Store) UpsertImportBatch(ctx context.Context, batch domain.ImportBatch)
 		&result.ErrorText,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("upsert import batch: %w", err)
+		return nil, fmt.Errorf("create import batch: %w", err)
 	}
 	return &result, nil
 }

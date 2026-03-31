@@ -79,7 +79,7 @@ func (s *ImportService) ImportBackupFile(ctx context.Context, options ImportOpti
 		return nil, err
 	}
 
-	batch, err := s.store.UpsertImportBatch(ctx, domain.ImportBatch{
+	batch, err := s.store.CreateImportBatch(ctx, domain.ImportBatch{
 		ID:           uuid.NewString(),
 		SourcePath:   resolvedPath,
 		SourceFormat: options.Format,

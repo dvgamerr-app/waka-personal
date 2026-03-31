@@ -82,7 +82,7 @@ The importer:
 
 1. Reads backup metadata
 2. Updates the singleton `import_profile`
-3. Creates or updates an `import_snapshot` record
+3. Creates a new `import_snapshot` record
 4. Uses the DuckDB Go client to flatten large JSON into CSV
 5. Bulk loads rows into PostgreSQL
 
