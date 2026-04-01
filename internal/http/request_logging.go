@@ -15,7 +15,6 @@ func apiDebugLogger() fiber.Handler {
 		startedAt := time.Now()
 		method := c.Method()
 		path := c.OriginalURL()
-		ip := c.IP()
 		bytesIn := len(c.Body())
 
 		err := c.Next()
@@ -27,7 +26,6 @@ func apiDebugLogger() fiber.Handler {
 		event := log.Debug().
 			Str("method", method).
 			Str("path", path).
-			Str("ip", ip).
 			Int("status", status).
 			Int("bytes_in", bytesIn).
 			Dur("duration", time.Since(startedAt))

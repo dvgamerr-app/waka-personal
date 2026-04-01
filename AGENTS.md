@@ -46,7 +46,6 @@
 
 - **Bun + Astro (SSR/API routes) + Svelte (interactive UI)**
 - Router = **Astro**, UI = **Svelte components**
-- DB = **Postgresql `payme.db`** via **better-Postgresql3 (sync)**
 
 ### Code Rules (non-negotiable)
 
@@ -54,6 +53,7 @@
 - Format = **Prettier only** (`semi:false`, `singleQuote:true`)
 - Prefer `const` + arrow fn (avoid `function`)
 - Commit flow: **Husky + lint-staged** (format-on-commit)
+- **ห้ามเขียน API logic ใน Astro** (`src/pages/api/`) — API ทั้งหมดต้องเขียนใน **Go backend** (`internal/http/`) เท่านั้น; Astro ทำหน้าที่ SSR + UI routing เท่านั้น
 
 ### UI Rules
 

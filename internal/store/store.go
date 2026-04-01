@@ -275,6 +275,18 @@ func (s *Store) ListHeartbeatsByRange(ctx context.Context, start, end time.Time)
 	return scanHeartbeats(rows)
 }
 
+func (s *Store) GetHeartbeatBounds(ctx context.Context) (*time.Time, *time.Time, error) {
+	var minTime *time.Time
+	var maxTime *time.Time
+	if err := s.db.QueryRow(ctx, `
+		SELECT MIN(time), MAX(time)
+		FROM heartbeats
+	`).Scan(&minTime, &maxTime); err != nil {
+		return nil, nil, fmt.Errorf("get heartbeat bounds: %w", err)
+	}
+	return minTime, maxTime, nil
+}
+
 func (s *Store) ListHeartbeatsForEntity(ctx context.Context, entity, project string, projectRootCount *int) ([]domain.HeartbeatRecord, error) {
 	builder := strings.Builder{}
 	builder.WriteString(`

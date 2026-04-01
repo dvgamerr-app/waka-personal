@@ -1,6 +1,6 @@
 import { defineConfig } from 'astro/config'
 import { fileURLToPath } from 'node:url'
-import svelte from '@astrojs/svelte'
+import react from '@astrojs/react'
 import tailwindcss from '@tailwindcss/vite'
 import { loadEnv } from 'vite'
 import { getAdapter as getBunAdapter } from '@nurodev/astro-bun'
@@ -46,7 +46,7 @@ const bunAdapter = (options = {}) => {
 
 export default defineConfig({
   adapter: bunAdapter(),
-  integrations: [svelte()],
+  integrations: [react()],
   output: 'server',
   build: {
     assets: 'dist',
@@ -56,6 +56,15 @@ export default defineConfig({
   },
   vite: {
     plugins: [silenceWatcherListenerWarning(), tailwindcss()],
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+      ],
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -3,8 +3,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
-    }
+    },
+    "jsx": "react-jsx"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", ".git", "drizzle", "public", ".vscode", ".github"]
+  "exclude": ["node_modules", "dist", ".git", "public", ".vscode", ".github"]
 }

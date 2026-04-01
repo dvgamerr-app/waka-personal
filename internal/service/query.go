@@ -59,46 +59,22 @@ func (s *QueryService) DeleteHeartbeatsForDate(ctx context.Context, day time.Tim
 	return s.store.DeleteHeartbeats(ctx, start.UTC(), end.UTC(), ids)
 }
 
-func (s *QueryService) StatusbarToday(ctx context.Context, now time.Time) (domain.StatusbarTodayData, error) {
-	profile, err := s.profile.EffectiveSnapshot(ctx)
+func (s *QueryService) StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error) {
+	settings, err := s.resolveQuerySettings(ctx, "", nil, nil)
 	if err != nil {
-		return domain.StatusbarTodayData{}, err
+		return nil, err
 	}
 
-	loc, err := time.LoadLocation(storeDefault(profile.Timezone, "UTC"))
-	if err != nil {
-		return domain.StatusbarTodayData{}, fmt.Errorf("load timezone %q: %w", profile.Timezone, err)
-	}
-
-	start := time.Date(now.In(loc).Year(), now.In(loc).Month(), now.In(loc).Day(), 0, 0, 0, 0, loc)
+	start := startOfDay(now.In(settings.location))
 	end := start.Add(24 * time.Hour)
 
 	heartbeats, err := s.store.ListHeartbeatsByRange(ctx, start.UTC(), end.UTC())
 	if err != nil {
-		return domain.StatusbarTodayData{}, err
+		return nil, err
 	}
 
-	timeout := 15
-	if profile.TimeoutMinutes != nil && *profile.TimeoutMinutes > 0 {
-		timeout = *profile.TimeoutMinutes
-	}
-
-	writesOnly := false
-	if profile.WritesOnly != nil {
-		writesOnly = *profile.WritesOnly
-	}
-
-	filtered := filterHeartbeats(heartbeats, writesOnly)
-	categories, totalSeconds := summarizeHeartbeats(filtered, time.Duration(timeout)*time.Minute, end.UTC(), now.UTC())
-
-	resp := domain.StatusbarTodayData{
-		Categories:      categories,
-		HasTeamFeatures: true,
-		Timezone:        loc.String(),
-	}
-	resp.GrandTotal.Text = humanizeDuration(totalSeconds)
-	resp.GrandTotal.TotalSeconds = totalSeconds
-	return resp, nil
+	filtered := filterHeartbeats(heartbeats, settings.writesOnly)
+	return buildDailySummaryMap(filtered, start, now.In(settings.location), settings, false), nil
 }
 
 func (s *QueryService) FileExperts(ctx context.Context, entity, project string, projectRootCount *int, now time.Time) ([]map[string]any, error) {

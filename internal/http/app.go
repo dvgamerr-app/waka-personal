@@ -28,7 +28,10 @@ type HeartbeatIngester interface {
 type QueryReader interface {
 	HeartbeatsForDate(ctx context.Context, day time.Time) ([]domain.HeartbeatRecord, time.Time, time.Time, string, error)
 	DeleteHeartbeatsForDate(ctx context.Context, day time.Time, ids []string) (int64, error)
-	StatusbarToday(ctx context.Context, now time.Time) (domain.StatusbarTodayData, error)
+	Durations(ctx context.Context, params domain.DurationQueryParams) ([]map[string]any, time.Time, time.Time, string, error)
+	Summaries(ctx context.Context, params domain.SummaryQueryParams) ([]map[string]any, error)
+	Stats(ctx context.Context, params domain.StatsQueryParams) (map[string]any, error)
+	StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error)
 	FileExperts(ctx context.Context, entity, project string, projectRootCount *int, now time.Time) ([]map[string]any, error)
 }
 
@@ -93,8 +96,14 @@ func registerUserRoutes(app *fiber.App, services Services) {
 	api.Post("/heartbeats.bulk", postBulkHeartbeatsHandler(services.Heartbeats))
 	api.Get("/heartbeats", getHeartbeatsHandler(services.Query))
 	api.Delete("/heartbeats.bulk", deleteHeartbeatsHandler(services.Query))
+	api.Get("/durations", durationsHandler(services.Query))
+	api.Get("/summaries", summariesHandler(services.Query))
+	api.Get("/stats", statsHandler(services.Query))
+	api.Get("/stats/:range", statsHandler(services.Query))
 	api.Get("/statusbar/today", statusbarTodayHandler(services.Query))
+	api.Get("/status_bar/today", statusbarTodayHandler(services.Query))
 	api.Post("/file_experts", fileExpertsHandler(services.Query))
+	api.Get("/dashboard", dashboardHandler(services.Query))
 }
 
 func authenticateRequest(auth Authenticator) fiber.Handler {
@@ -229,6 +238,97 @@ func deleteHeartbeatsHandler(query QueryReader) fiber.Handler {
 	}
 }
 
+func durationsHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		timeoutMinutes, err := parseOptionalIntQuery(c.Query("timeout"))
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+		writesOnly, err := parseOptionalBoolQuery(c.Query("writes_only"))
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
+		params := domain.DurationQueryParams{
+			Date:           c.Query("date"),
+			Project:        c.Query("project"),
+			Branches:       parseCSVQuery(c.Query("branches")),
+			SliceBy:        c.Query("slice_by"),
+			Timezone:       c.Query("timezone"),
+			TimeoutMinutes: timeoutMinutes,
+			WritesOnly:     writesOnly,
+		}
+
+		items, start, end, timezone, err := query.Durations(c.Context(), params)
+		if err != nil {
+			return err
+		}
+
+		return c.JSON(fiber.Map{
+			"data":     items,
+			"start":    start.Format(time.RFC3339),
+			"end":      end.Format(time.RFC3339),
+			"timezone": timezone,
+		})
+	}
+}
+
+func summariesHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		timeoutMinutes, err := parseOptionalIntQuery(c.Query("timeout"))
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+		writesOnly, err := parseOptionalBoolQuery(c.Query("writes_only"))
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
+		params := domain.SummaryQueryParams{
+			Start:          c.Query("start"),
+			End:            c.Query("end"),
+			Range:          c.Query("range"),
+			Project:        c.Query("project"),
+			Branches:       parseCSVQuery(c.Query("branches")),
+			Timezone:       c.Query("timezone"),
+			TimeoutMinutes: timeoutMinutes,
+			WritesOnly:     writesOnly,
+		}
+
+		data, err := query.Summaries(c.Context(), params)
+		if err != nil {
+			return err
+		}
+
+		return c.JSON(fiber.Map{"data": data})
+	}
+}
+
+func statsHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		timeoutMinutes, err := parseOptionalIntQuery(c.Query("timeout"))
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+		writesOnly, err := parseOptionalBoolQuery(c.Query("writes_only"))
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
+		data, err := query.Stats(c.Context(), domain.StatsQueryParams{
+			Range:          c.Params("range"),
+			Timezone:       c.Query("timezone"),
+			TimeoutMinutes: timeoutMinutes,
+			WritesOnly:     writesOnly,
+		})
+		if err != nil {
+			return err
+		}
+
+		return c.JSON(fiber.Map{"data": data})
+	}
+}
+
 func statusbarTodayHandler(query QueryReader) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		data, err := query.StatusbarToday(c.Context(), time.Now().UTC())
@@ -236,8 +336,9 @@ func statusbarTodayHandler(query QueryReader) fiber.Handler {
 			return err
 		}
 		return c.JSON(fiber.Map{
+			"cached_at":         time.Now().UTC().Format(time.RFC3339),
 			"data":              data,
-			"has_team_features": data.HasTeamFeatures,
+			"has_team_features": true,
 		})
 	}
 }
@@ -274,6 +375,175 @@ func parseDayQuery(value string) (time.Time, error) {
 		return time.Time{}, fiber.NewError(fiber.StatusBadRequest, "date must use YYYY-MM-DD format")
 	}
 	return day, nil
+}
+
+func parseOptionalIntQuery(value string) (*int, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var parsed int
+	if _, err := fmt.Sscanf(trimmed, "%d", &parsed); err != nil {
+		return nil, fmt.Errorf("invalid integer query value %q", value)
+	}
+	return &parsed, nil
+}
+
+func parseOptionalBoolQuery(value string) (*bool, error) {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	if trimmed == "" {
+		return nil, nil
+	}
+	switch trimmed {
+	case "1", "true", "yes", "y", "on":
+		result := true
+		return &result, nil
+	case "0", "false", "no", "n", "off":
+		result := false
+		return &result, nil
+	default:
+		return nil, fmt.Errorf("invalid boolean query value %q", value)
+	}
+}
+
+func parseCSVQuery(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func dashboardHandler(query QueryReader) fiber.Handler {
+	rangeToStats := map[string]string{
+		"today":                      "last_7_days",
+		"yesterday":                  "last_7_days",
+		"last 7 days":                "last_7_days",
+		"last 7 days from yesterday": "last_7_days",
+		"last 14 days":               "last_30_days",
+		"last 30 days":               "last_30_days",
+		"this week":                  "last_7_days",
+		"last week":                  "last_7_days",
+		"this month":                 "last_30_days",
+		"last month":                 "last_30_days",
+	}
+
+	return func(c *fiber.Ctx) error {
+		rangeParam := c.Query("range", "Last 7 Days")
+		start := c.Query("start")
+		end := c.Query("end")
+		timezone := c.Query("timezone", "UTC")
+
+		statsRange := rangeToStats[strings.ToLower(strings.TrimSpace(rangeParam))]
+		if statsRange == "" {
+			statsRange = "last_7_days"
+		}
+
+		loc, err := time.LoadLocation(timezone)
+		if err != nil {
+			loc = time.UTC
+		}
+		todayDate := time.Now().In(loc).Format("2006-01-02")
+
+		summaryParams := domain.SummaryQueryParams{Timezone: timezone}
+		if start != "" && end != "" {
+			summaryParams.Start = start
+			summaryParams.End = end
+		} else {
+			summaryParams.Range = rangeParam
+		}
+
+		type statsResult struct {
+			data map[string]any
+			err  error
+		}
+		type listResult struct {
+			data []map[string]any
+			err  error
+		}
+
+		statsCh := make(chan statsResult, 1)
+		summariesCh := make(chan listResult, 1)
+		todayCh := make(chan statsResult, 1)
+		projCh := make(chan listResult, 1)
+		langCh := make(chan listResult, 1)
+
+		go func() {
+			v, e := query.Stats(c.Context(), domain.StatsQueryParams{Range: statsRange, Timezone: timezone})
+			statsCh <- statsResult{v, e}
+		}()
+		go func() {
+			v, e := query.Summaries(c.Context(), summaryParams)
+			summariesCh <- listResult{v, e}
+		}()
+		go func() {
+			v, e := query.StatusbarToday(c.Context(), time.Now().UTC())
+			todayCh <- statsResult{v, e}
+		}()
+		go func() {
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "project", Timezone: timezone})
+			projCh <- listResult{items, e}
+		}()
+		go func() {
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "language", Timezone: timezone})
+			langCh <- listResult{items, e}
+		}()
+
+		statsRes := <-statsCh
+		summariesRes := <-summariesCh
+		todayRes := <-todayCh
+		projRes := <-projCh
+		langRes := <-langCh
+
+		var apiErrors []string
+		if statsRes.err != nil {
+			apiErrors = append(apiErrors, statsRes.err.Error())
+		}
+		if summariesRes.err != nil {
+			apiErrors = append(apiErrors, summariesRes.err.Error())
+		}
+		if todayRes.err != nil {
+			apiErrors = append(apiErrors, todayRes.err.Error())
+		}
+		if projRes.err != nil {
+			apiErrors = append(apiErrors, projRes.err.Error())
+		}
+		if langRes.err != nil {
+			apiErrors = append(apiErrors, langRes.err.Error())
+		}
+
+		if statsRes.data == nil {
+			statsRes.data = map[string]any{}
+		}
+		if todayRes.data == nil {
+			todayRes.data = map[string]any{}
+		}
+		if summariesRes.data == nil {
+			summariesRes.data = []map[string]any{}
+		}
+		if projRes.data == nil {
+			projRes.data = []map[string]any{}
+		}
+		if langRes.data == nil {
+			langRes.data = []map[string]any{}
+		}
+
+		return c.JSON(fiber.Map{
+			"stats":              statsRes.data,
+			"summaries":          summariesRes.data,
+			"today":              todayRes.data,
+			"project_durations":  projRes.data,
+			"language_durations": langRes.data,
+			"errors":             apiErrors,
+		})
+	}
 }
 
 func Shutdown(ctx context.Context, app *fiber.App) error {

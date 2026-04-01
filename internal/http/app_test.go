@@ -52,14 +52,52 @@ func (s stubQuery) DeleteHeartbeatsForDate(ctx context.Context, day time.Time, i
 	return int64(len(ids)), nil
 }
 
-func (s stubQuery) StatusbarToday(ctx context.Context, now time.Time) (domain.StatusbarTodayData, error) {
-	var data domain.StatusbarTodayData
-	data.GrandTotal.Text = "1 hr 2 mins"
-	data.GrandTotal.TotalSeconds = 3720
-	data.Categories = []domain.StatusbarCategory{{Name: "Coding", Text: "1 hr 2 mins", TotalSeconds: 3720}}
-	data.HasTeamFeatures = true
-	data.Timezone = "Asia/Bangkok"
-	return data, nil
+func (s stubQuery) Durations(ctx context.Context, params domain.DurationQueryParams) ([]map[string]any, time.Time, time.Time, string, error) {
+	return []map[string]any{
+		{
+			"project":  "waka-personal",
+			"time":     float64(time.Unix(1710000000, 0).Unix()),
+			"duration": 300.0,
+		},
+	}, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC), "UTC", nil
+}
+
+func (s stubQuery) Summaries(ctx context.Context, params domain.SummaryQueryParams) ([]map[string]any, error) {
+	return []map[string]any{
+		{
+			"grand_total": map[string]any{
+				"text":          "1 hr 2 mins",
+				"total_seconds": 3720.0,
+			},
+		},
+	}, nil
+}
+
+func (s stubQuery) Stats(ctx context.Context, params domain.StatsQueryParams) (map[string]any, error) {
+	return map[string]any{
+		"human_readable_total_including_other_language": "2 hrs 10 mins",
+		"total_seconds_including_other_language":        7800.0,
+	}, nil
+}
+
+func (s stubQuery) StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error) {
+	return map[string]any{
+		"grand_total": map[string]any{
+			"text":          "1 hr 2 mins",
+			"total_seconds": 3720.0,
+		},
+		"categories": []map[string]any{
+			{
+				"name":          "Coding",
+				"text":          "1 hr 2 mins",
+				"total_seconds": 3720.0,
+			},
+		},
+		"range": map[string]any{
+			"text":     "Today",
+			"timezone": "Asia/Bangkok",
+		},
+	}, nil
 }
 
 func (s stubQuery) FileExperts(ctx context.Context, entity, project string, projectRootCount *int, now time.Time) ([]map[string]any, error) {
