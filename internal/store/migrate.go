@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	// Register pgx as the database/sql driver used by goose migrations.
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/rs/zerolog/log"

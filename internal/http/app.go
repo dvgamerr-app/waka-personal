@@ -1,4 +1,4 @@
-package http
+package apihttp
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 
 	"waka-personal/internal/config"
 	"waka-personal/internal/domain"
-	"waka-personal/internal/service"
 )
 
 type Authenticator interface {
@@ -43,23 +42,28 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 	app := fiber.New(fiber.Config{
 		AppName:               "waka-personal",
 		DisableStartupMessage: true,
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			status := fiber.StatusInternalServerError
-			if fiberErr, ok := err.(*fiber.Error); ok {
-				status = fiberErr.Code
-			}
-			if errors.Is(err, service.ErrUnauthorized) {
-				status = fiber.StatusUnauthorized
-			}
-			if err == nil {
-				err = errors.New("unknown error")
-			}
-			return c.Status(status).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		},
+		ErrorHandler:          newAppErrorHandler(),
 	})
 
+	configureAppMiddleware(app, cfg)
+	registerHealthRoutes(app, checker)
+	registerUserRoutes(app, services)
+
+	return app
+}
+
+func newAppErrorHandler() fiber.ErrorHandler {
+	return func(c *fiber.Ctx, err error) error {
+		if err == nil {
+			err = errors.New("unknown error")
+		}
+		return c.Status(statusCodeForError(err)).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+}
+
+func configureAppMiddleware(app *fiber.App, cfg *config.Config) {
 	app.Use(requestid.New())
 	app.Use(recover.New())
 	app.Use(cors.New(cors.Config{
@@ -69,7 +73,9 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 		AllowCredentials: false,
 	}))
 	app.Use("/api", apiDebugLogger())
+}
 
+func registerHealthRoutes(app *fiber.App, checker *Checker) {
 	app.Get("/healthz/live", func(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	})
@@ -79,19 +85,34 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 		}
 		return c.JSON(fiber.Map{"status": "ready"})
 	})
+}
 
-	api := app.Group("/api/v1/users/current", func(c *fiber.Ctx) error {
-		return services.Auth.Validate(c.Query("api_key"), c.Get("Authorization"))
-	})
+func registerUserRoutes(app *fiber.App, services Services) {
+	api := app.Group("/api/v1/users/current", authenticateRequest(services.Auth))
+	api.Post("/heartbeats", postHeartbeatHandler(services.Heartbeats))
+	api.Post("/heartbeats.bulk", postBulkHeartbeatsHandler(services.Heartbeats))
+	api.Get("/heartbeats", getHeartbeatsHandler(services.Query))
+	api.Delete("/heartbeats.bulk", deleteHeartbeatsHandler(services.Query))
+	api.Get("/statusbar/today", statusbarTodayHandler(services.Query))
+	api.Post("/file_experts", fileExpertsHandler(services.Query))
+}
 
-	api.Post("/heartbeats", func(c *fiber.Ctx) error {
-		records, err := services.Heartbeats.Ingest(c.Context(), c.Body(), c.Get("X-Machine-Name"), nil)
+func authenticateRequest(auth Authenticator) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		return auth.Validate(c.Query("api_key"), c.Get("Authorization"))
+	}
+}
+
+func postHeartbeatHandler(ingester HeartbeatIngester) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		records, err := ingester.Ingest(c.Context(), c.Body(), c.Get("X-Machine-Name"), nil)
 		if err != nil {
 			return err
 		}
 		if len(records) == 0 {
 			return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"data": fiber.Map{}})
 		}
+
 		record := records[0]
 		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
 			"data": fiber.Map{
@@ -101,15 +122,19 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 				"time":   float64(record.Time.UnixNano()) / float64(time.Second),
 			},
 		})
-	})
+	}
+}
 
-	api.Post("/heartbeats.bulk", func(c *fiber.Ctx) error {
-		records, err := services.Heartbeats.Ingest(c.Context(), c.Body(), c.Get("X-Machine-Name"), nil)
+func postBulkHeartbeatsHandler(ingester HeartbeatIngester) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		records, err := ingester.Ingest(c.Context(), c.Body(), c.Get("X-Machine-Name"), nil)
 		if err != nil {
 			return err
 		}
+
 		items := make([]fiber.Map, 0, len(records))
-		for _, record := range records {
+		for i := range records {
+			record := &records[i]
 			items = append(items, fiber.Map{
 				"id":     record.ID,
 				"entity": record.Entity,
@@ -123,25 +148,24 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 				"heartbeats": items,
 			},
 		})
-	})
+	}
+}
 
-	api.Get("/heartbeats", func(c *fiber.Ctx) error {
-		dateValue := c.Query("date")
-		if dateValue == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "date query parameter is required")
-		}
-		day, err := time.Parse("2006-01-02", dateValue)
+func getHeartbeatsHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		day, err := parseDayQuery(c.Query("date"))
 		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "date must use YYYY-MM-DD format")
+			return err
 		}
 
-		records, start, end, timezone, err := services.Query.HeartbeatsForDate(c.Context(), day)
+		records, start, end, timezone, err := query.HeartbeatsForDate(c.Context(), day)
 		if err != nil {
 			return err
 		}
 
 		items := make([]fiber.Map, 0, len(records))
-		for _, record := range records {
+		for i := range records {
+			record := &records[i]
 			items = append(items, fiber.Map{
 				"id":                 record.ID,
 				"entity":             record.Entity,
@@ -169,9 +193,11 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 			"end":      end.Format(time.RFC3339),
 			"timezone": timezone,
 		})
-	})
+	}
+}
 
-	api.Delete("/heartbeats.bulk", func(c *fiber.Ctx) error {
+func deleteHeartbeatsHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
 		var payload struct {
 			Date string   `json:"date"`
 			IDs  []string `json:"ids"`
@@ -182,12 +208,13 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 		if payload.Date == "" {
 			return fiber.NewError(fiber.StatusBadRequest, "date is required")
 		}
+
 		day, err := time.Parse("2006-01-02", payload.Date)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "date must use YYYY-MM-DD format")
 		}
 
-		deleted, err := services.Query.DeleteHeartbeatsForDate(c.Context(), day, payload.IDs)
+		deleted, err := query.DeleteHeartbeatsForDate(c.Context(), day, payload.IDs)
 		if err != nil {
 			return err
 		}
@@ -196,10 +223,12 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 				"deleted": deleted,
 			},
 		})
-	})
+	}
+}
 
-	api.Get("/statusbar/today", func(c *fiber.Ctx) error {
-		data, err := services.Query.StatusbarToday(c.Context(), time.Now().UTC())
+func statusbarTodayHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		data, err := query.StatusbarToday(c.Context(), time.Now().UTC())
 		if err != nil {
 			return err
 		}
@@ -207,9 +236,11 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 			"data":              data,
 			"has_team_features": data.HasTeamFeatures,
 		})
-	})
+	}
+}
 
-	api.Post("/file_experts", func(c *fiber.Ctx) error {
+func fileExpertsHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
 		var payload struct {
 			Entity           string `json:"entity"`
 			Project          string `json:"project"`
@@ -222,14 +253,24 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 			return fiber.NewError(fiber.StatusBadRequest, "entity is required")
 		}
 
-		data, err := services.Query.FileExperts(c.Context(), payload.Entity, payload.Project, payload.ProjectRootCount, time.Now().UTC())
+		data, err := query.FileExperts(c.Context(), payload.Entity, payload.Project, payload.ProjectRootCount, time.Now().UTC())
 		if err != nil {
 			return err
 		}
 		return c.JSON(fiber.Map{"data": data})
-	})
+	}
+}
 
-	return app
+func parseDayQuery(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, fiber.NewError(fiber.StatusBadRequest, "date query parameter is required")
+	}
+
+	day, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}, fiber.NewError(fiber.StatusBadRequest, "date must use YYYY-MM-DD format")
+	}
+	return day, nil
 }
 
 func Shutdown(ctx context.Context, app *fiber.App) error {

@@ -1,4 +1,4 @@
-package http
+package apihttp
 
 import "sync/atomic"
 

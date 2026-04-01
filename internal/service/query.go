@@ -16,11 +16,11 @@ type QueryService struct {
 	profile *ProfileService
 }
 
-func NewQueryService(store *store.Store, profile *ProfileService) *QueryService {
-	return &QueryService{store: store, profile: profile}
+func NewQueryService(dataStore *store.Store, profile *ProfileService) *QueryService {
+	return &QueryService{store: dataStore, profile: profile}
 }
 
-func (s *QueryService) HeartbeatsForDate(ctx context.Context, day time.Time) ([]domain.HeartbeatRecord, time.Time, time.Time, string, error) {
+func (s *QueryService) HeartbeatsForDate(ctx context.Context, day time.Time) (heartbeats []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
 	profile, err := s.profile.EffectiveSnapshot(ctx)
 	if err != nil {
 		return nil, time.Time{}, time.Time{}, "", err
@@ -32,10 +32,10 @@ func (s *QueryService) HeartbeatsForDate(ctx context.Context, day time.Time) ([]
 	}
 
 	localDay := day.In(loc)
-	start := time.Date(localDay.Year(), localDay.Month(), localDay.Day(), 0, 0, 0, 0, loc)
-	end := start.Add(24 * time.Hour)
+	start = time.Date(localDay.Year(), localDay.Month(), localDay.Day(), 0, 0, 0, 0, loc)
+	end = start.Add(24 * time.Hour)
 
-	heartbeats, err := s.store.ListHeartbeatsByRange(ctx, start.UTC(), end.UTC())
+	heartbeats, err = s.store.ListHeartbeatsByRange(ctx, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, time.Time{}, time.Time{}, "", err
 	}
@@ -153,15 +153,16 @@ func filterHeartbeats(heartbeats []domain.HeartbeatRecord, writesOnly bool) []do
 	}
 
 	filtered := make([]domain.HeartbeatRecord, 0, len(heartbeats))
-	for _, heartbeat := range heartbeats {
+	for i := range heartbeats {
+		heartbeat := &heartbeats[i]
 		if heartbeat.IsWrite {
-			filtered = append(filtered, heartbeat)
+			filtered = append(filtered, *heartbeat)
 		}
 	}
 	return filtered
 }
 
-func summarizeHeartbeats(heartbeats []domain.HeartbeatRecord, timeout time.Duration, windowEnd, now time.Time) ([]domain.StatusbarCategory, float64) {
+func summarizeHeartbeats(heartbeats []domain.HeartbeatRecord, timeout time.Duration, windowEnd, now time.Time) (categories []domain.StatusbarCategory, total float64) {
 	if len(heartbeats) == 0 {
 		return []domain.StatusbarCategory{}, 0
 	}
@@ -176,8 +177,8 @@ func summarizeHeartbeats(heartbeats []domain.HeartbeatRecord, timeout time.Durat
 	}
 
 	categoryTotals := map[string]float64{}
-	var total float64
-	for i, heartbeat := range heartbeats {
+	for i := range heartbeats {
+		heartbeat := &heartbeats[i]
 		nextTime := heartbeat.Time.Add(timeout)
 		if i+1 < len(heartbeats) && heartbeats[i+1].Time.Before(nextTime) {
 			nextTime = heartbeats[i+1].Time
@@ -195,7 +196,7 @@ func summarizeHeartbeats(heartbeats []domain.HeartbeatRecord, timeout time.Durat
 		total += seconds
 	}
 
-	categories := make([]domain.StatusbarCategory, 0, len(categoryTotals))
+	categories = make([]domain.StatusbarCategory, 0, len(categoryTotals))
 	for name, seconds := range categoryTotals {
 		categories = append(categories, domain.StatusbarCategory{
 			Name:         name,

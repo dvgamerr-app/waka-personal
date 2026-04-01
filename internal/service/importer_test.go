@@ -32,8 +32,8 @@ func TestMapBackupUserToSnapshot(t *testing.T) {
 	var payload struct {
 		User json.RawMessage `json:"user"`
 	}
-	if err := json.Unmarshal(contents, &payload); err != nil {
-		t.Fatalf("Unmarshal returned error: %v", err)
+	if unmarshalErr := json.Unmarshal(contents, &payload); unmarshalErr != nil {
+		t.Fatalf("Unmarshal returned error: %v", unmarshalErr)
 	}
 
 	snapshot, err := mapBackupUserToSnapshot(payload.User)

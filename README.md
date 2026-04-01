@@ -56,12 +56,16 @@ Set these in VS Code settings:
 
 ```json
 {
-  "wakatime.apiKey": "change-me",
+  "wakatime.apiKey": "your-local-api-key",
   "wakatime.apiUrl": "http://localhost:8080/api/v1"
 }
 ```
 
 The extension normalizes the base URL, so use the API root and not a specific heartbeat path.
+
+This server only compares strings for auth, so `APP_API_KEY` only needs to match whatever the client sends.
+
+If a specific client validates API key format on its own, choose a key value that client accepts. That is a client constraint, not a server requirement.
 
 ## Import Backup JSON
 

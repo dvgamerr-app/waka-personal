@@ -1,9 +1,10 @@
-package http
+package apihttp_test
 
 import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"waka-personal/internal/config"
 	"waka-personal/internal/domain"
+	apihttp "waka-personal/internal/http"
 	"waka-personal/internal/service"
 
 	"github.com/rs/zerolog"
@@ -42,7 +44,7 @@ type stubQuery struct {
 	fileExpertsPayload []map[string]any
 }
 
-func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) ([]domain.HeartbeatRecord, time.Time, time.Time, string, error) {
+func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) (records []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
 	return nil, day.UTC(), day.Add(24 * time.Hour).UTC(), "UTC", nil
 }
 
@@ -65,24 +67,25 @@ func (s stubQuery) FileExperts(ctx context.Context, entity, project string, proj
 }
 
 func TestNewApp_RejectsUnauthorizedRequests(t *testing.T) {
-	app := NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &Checker{}, Services{
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
 		Auth:       service.NewAuthService("secret"),
 		Heartbeats: stubHeartbeats{},
 		Query:      stubQuery{},
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/users/current/statusbar/today?api_key=wrong", nil)
+	req := httptest.NewRequest("GET", "/api/v1/users/current/statusbar/today?api_key=wrong", http.NoBody)
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test returned error: %v", err)
 	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	if resp.StatusCode != 401 {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 }
 
 func TestNewApp_FileExpertsAcceptsDoubleEncodedJSON(t *testing.T) {
-	app := NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &Checker{}, Services{
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
 		Auth:       stubAuth{},
 		Heartbeats: stubHeartbeats{},
 		Query: stubQuery{
@@ -105,6 +108,7 @@ func TestNewApp_FileExpertsAcceptsDoubleEncodedJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("app.Test returned error: %v", err)
 	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		t.Fatalf("expected 200, got %d with body %s", resp.StatusCode, string(bodyBytes))
@@ -112,17 +116,18 @@ func TestNewApp_FileExpertsAcceptsDoubleEncodedJSON(t *testing.T) {
 }
 
 func TestNewApp_StatusbarTodayShape(t *testing.T) {
-	app := NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &Checker{}, Services{
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
 		Auth:       stubAuth{},
 		Heartbeats: stubHeartbeats{},
 		Query:      stubQuery{},
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/users/current/statusbar/today", nil)
+	req := httptest.NewRequest("GET", "/api/v1/users/current/statusbar/today", http.NoBody)
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test returned error: %v", err)
 	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -139,17 +144,18 @@ func TestNewApp_LogsAPIRequestsAtDebugLevel(t *testing.T) {
 		zerolog.SetGlobalLevel(previousLevel)
 	})
 
-	app := NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &Checker{}, Services{
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
 		Auth:       stubAuth{},
 		Heartbeats: stubHeartbeats{},
 		Query:      stubQuery{},
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/users/current/statusbar/today?api_key=secret", nil)
+	req := httptest.NewRequest("GET", "/api/v1/users/current/statusbar/today?api_key=secret", http.NoBody)
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test returned error: %v", err)
 	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}

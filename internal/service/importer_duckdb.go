@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	// Register the DuckDB database/sql driver used for CSV flattening.
 	_ "github.com/duckdb/duckdb-go/v2"
 )
 

@@ -25,6 +25,7 @@
 # Go workspace file
 go.work
 .gocache
+.golangci-cache
 
 ### VisualStudioCode ###
 .vscode/*

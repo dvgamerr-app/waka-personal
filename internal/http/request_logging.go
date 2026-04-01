@@ -1,4 +1,4 @@
-package http
+package apihttp
 
 import (
 	"errors"
@@ -47,7 +47,6 @@ func apiDebugLogger() fiber.Handler {
 func statusCodeForError(err error) int {
 	if err == nil {
 		return fiber.StatusOK
-		
 	}
 
 	status := fiber.StatusInternalServerError

@@ -16,8 +16,8 @@ type HeartbeatService struct {
 	store *store.Store
 }
 
-func NewHeartbeatService(store *store.Store) *HeartbeatService {
-	return &HeartbeatService{store: store}
+func NewHeartbeatService(dataStore *store.Store) *HeartbeatService {
+	return &HeartbeatService{store: dataStore}
 }
 
 func (s *HeartbeatService) Ingest(ctx context.Context, body []byte, machineName string, importBatchID *string) ([]domain.HeartbeatRecord, error) {
@@ -27,8 +27,8 @@ func (s *HeartbeatService) Ingest(ctx context.Context, body []byte, machineName 
 	}
 
 	records := make([]domain.HeartbeatRecord, 0, len(payloads))
-	for _, payload := range payloads {
-		record, err := NormalizeHeartbeat(payload, machineName, importBatchID)
+	for i := range payloads {
+		record, err := NormalizeHeartbeat(&payloads[i], machineName, importBatchID)
 		if err != nil {
 			return nil, err
 		}
@@ -74,41 +74,25 @@ func ParseHeartbeatBody(body []byte) ([]domain.HeartbeatPayload, error) {
 	}
 }
 
-func NormalizeHeartbeat(payload domain.HeartbeatPayload, machineName string, importBatchID *string) (domain.HeartbeatRecord, error) {
-	if strings.TrimSpace(payload.Entity) == "" {
-		return domain.HeartbeatRecord{}, errors.New("heartbeat entity is required")
-	}
-	if payload.Time <= 0 {
-		return domain.HeartbeatRecord{}, errors.New("heartbeat time must be greater than zero")
+func NormalizeHeartbeat(payload *domain.HeartbeatPayload, machineName string, importBatchID *string) (domain.HeartbeatRecord, error) {
+	if err := validateHeartbeatPayload(payload); err != nil {
+		return domain.HeartbeatRecord{}, err
 	}
 
 	heartbeatTime := time.Unix(0, int64(payload.Time*float64(time.Second))).UTC()
-	var sourceCreatedAt *time.Time
-	if payload.CreatedAt != "" {
-		parsed, err := time.Parse(time.RFC3339, payload.CreatedAt)
-		if err != nil {
-			return domain.HeartbeatRecord{}, fmt.Errorf("parse created_at: %w", err)
-		}
-		parsed = parsed.UTC()
-		sourceCreatedAt = &parsed
-	}
-
-	lines := payload.Lines
-	if lines == nil {
-		lines = payload.LinesInFile
-	}
-
-	project := strings.TrimSpace(payload.Project)
-	if project == "" {
-		project = strings.TrimSpace(payload.AlternateProject)
-	}
-
-	category := normalizeCategory(payload.Category)
-	dependencies, err := parseDependencies(payload.Dependencies)
+	sourceCreatedAt, err := parseHeartbeatCreatedAt(payload.CreatedAt)
 	if err != nil {
 		return domain.HeartbeatRecord{}, err
 	}
 
+	normalizedType := defaultType(payload.Type)
+	category := normalizeCategory(payload.Category)
+	project := resolveHeartbeatProject(payload)
+	lines := resolveHeartbeatLines(payload)
+	dependencies, err := parseDependencies(payload.Dependencies)
+	if err != nil {
+		return domain.HeartbeatRecord{}, err
+	}
 	originPayload, err := json.Marshal(payload)
 	if err != nil {
 		return domain.HeartbeatRecord{}, fmt.Errorf("marshal origin payload: %w", err)
@@ -118,7 +102,7 @@ func NormalizeHeartbeat(payload domain.HeartbeatPayload, machineName string, imp
 		payload.ID,
 		heartbeatTime,
 		payload.Entity,
-		defaultType(payload.Type),
+		normalizedType,
 		category,
 		project,
 		payload.Branch,
@@ -136,7 +120,7 @@ func NormalizeHeartbeat(payload domain.HeartbeatPayload, machineName string, imp
 		Time:                heartbeatTime,
 		SourceCreatedAt:     sourceCreatedAt,
 		Entity:              payload.Entity,
-		Type:                defaultType(payload.Type),
+		Type:                normalizedType,
 		Category:            category,
 		Project:             project,
 		Branch:              payload.Branch,
@@ -158,6 +142,44 @@ func NormalizeHeartbeat(payload domain.HeartbeatPayload, machineName string, imp
 		ImportBatchID:       importBatchID,
 		OriginPayload:       originPayload,
 	}, nil
+}
+
+func validateHeartbeatPayload(payload *domain.HeartbeatPayload) error {
+	if strings.TrimSpace(payload.Entity) == "" {
+		return errors.New("heartbeat entity is required")
+	}
+	if payload.Time <= 0 {
+		return errors.New("heartbeat time must be greater than zero")
+	}
+	return nil
+}
+
+func parseHeartbeatCreatedAt(value string) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
+}
+
+func resolveHeartbeatLines(payload *domain.HeartbeatPayload) *int {
+	if payload.Lines != nil {
+		return payload.Lines
+	}
+	return payload.LinesInFile
+}
+
+func resolveHeartbeatProject(payload *domain.HeartbeatPayload) string {
+	project := strings.TrimSpace(payload.Project)
+	if project != "" {
+		return project
+	}
+	return strings.TrimSpace(payload.AlternateProject)
 }
 
 func normalizeCategory(value string) string {

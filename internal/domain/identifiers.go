@@ -17,7 +17,7 @@ func BuildDedupeIdentifiers(
 	isWrite bool,
 	lineno, cursorpos *int,
 	plugin string,
-) (string, string) {
+) (id, dedupeHash string) {
 	if sourceHeartbeatID != "" {
 		hash := sha256.Sum256([]byte("src:" + sourceHeartbeatID))
 		return uuid.NewString(), hex.EncodeToString(hash[:])

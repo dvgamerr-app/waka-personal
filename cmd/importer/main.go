@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"os"
 
@@ -15,6 +16,12 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg := config.Load()
 	logger := logging.New(cfg.LogLevel, cfg.LogFormat)
 	log.Logger = logger
@@ -28,20 +35,21 @@ func main() {
 	flag.Parse()
 
 	if filePath == "" {
-		logger.Error().Msg("--file is required")
-		os.Exit(1)
+		err := errors.New("--file is required")
+		logger.Error().Err(err).Msg("invalid importer arguments")
+		return err
 	}
 
 	ctx := context.Background()
 	if err := store.ApplyMigrations(ctx, cfg.DatabaseURL, cfg.MigrationDir, cfg.GooseTable); err != nil {
 		logger.Error().Err(err).Msg("failed to apply migrations")
-		os.Exit(1)
+		return err
 	}
 
 	db, err := store.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to connect to database")
-		os.Exit(1)
+		return err
 	}
 	defer db.Close()
 
@@ -54,7 +62,7 @@ func main() {
 	})
 	if err != nil {
 		logger.Error().Err(err).Msg("backup import failed")
-		os.Exit(1)
+		return err
 	}
 
 	logger.Info().
@@ -62,4 +70,5 @@ func main() {
 		Int64("imported_rows", result.ImportedRows).
 		Int64("skipped_rows", result.SkippedRows).
 		Msg("backup import completed")
+	return nil
 }

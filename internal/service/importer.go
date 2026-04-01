@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,8 +24,8 @@ type ImportService struct {
 	store *store.Store
 }
 
-func NewImportService(store *store.Store) *ImportService {
-	return &ImportService{store: store}
+func NewImportService(dataStore *store.Store) *ImportService {
+	return &ImportService{store: dataStore}
 }
 
 type ImportOptions struct {
@@ -47,26 +48,9 @@ type backupRange struct {
 const duckDBMaximumObjectSizeBytes = 1024 * 1024 * 1024
 
 func (s *ImportService) ImportBackupFile(ctx context.Context, options ImportOptions) (*ImportResult, error) {
-	resolvedPath, err := filepath.Abs(options.FilePath)
+	resolvedPath, format, err := resolveImportOptions(options)
 	if err != nil {
-		return nil, fmt.Errorf("resolve import file path: %w", err)
-	}
-	if options.Format == "" {
-		options.Format = "backup-json"
-	}
-	if options.Format != "backup-json" {
-		return nil, fmt.Errorf("unsupported import format %q", options.Format)
-	}
-	if !strings.HasSuffix(strings.ToLower(resolvedPath), ".json") && !strings.HasSuffix(strings.ToLower(resolvedPath), ".json.gz") {
-		return nil, fmt.Errorf("import file must end with .json or .json.gz")
-	}
-
-	info, err := os.Stat(resolvedPath)
-	if err != nil {
-		return nil, fmt.Errorf("stat import file: %w", err)
-	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("import file must not be a directory")
+		return nil, err
 	}
 
 	checksum, err := checksumFile(resolvedPath)
@@ -79,10 +63,10 @@ func (s *ImportService) ImportBackupFile(ctx context.Context, options ImportOpti
 		return nil, err
 	}
 
-	batch, err := s.store.CreateImportBatch(ctx, domain.ImportBatch{
+	batch, err := s.store.CreateImportBatch(ctx, &domain.ImportBatch{
 		ID:           uuid.NewString(),
 		SourcePath:   resolvedPath,
-		SourceFormat: options.Format,
+		SourceFormat: format,
 		SourceSHA256: checksum,
 		Status:       "running",
 		RangeStart:   epochToTime(fileRange.Start),
@@ -92,46 +76,19 @@ func (s *ImportService) ImportBackupFile(ctx context.Context, options ImportOpti
 		return nil, err
 	}
 
-	if len(rawUser) > 0 {
-		snapshot, err := mapBackupUserToSnapshot(rawUser)
-		if err != nil {
-			errText := err.Error()
-			_ = s.store.UpdateImportBatchStatus(ctx, batch.ID, "failed", 0, 0, &errText)
-			return nil, err
-		}
-		if err := s.store.UpsertProfileSnapshot(ctx, snapshot); err != nil {
-			errText := err.Error()
-			_ = s.store.UpdateImportBatchStatus(ctx, batch.ID, "failed", 0, 0, &errText)
-			return nil, err
-		}
+	if profileErr := s.importProfileSnapshot(ctx, batch.ID, rawUser); profileErr != nil {
+		return nil, profileErr
 	}
 
 	if options.DryRun {
-		if err := s.store.UpdateImportBatchStatus(ctx, batch.ID, "dry-run", 0, 0, nil); err != nil {
-			return nil, err
+		if updateErr := s.store.UpdateImportBatchStatus(ctx, batch.ID, "dry-run", 0, 0, nil); updateErr != nil {
+			return nil, updateErr
 		}
 		return &ImportResult{BatchID: batch.ID}, nil
 	}
 
-	tempDir, err := os.MkdirTemp("", "waka-import-*")
+	imported, skipped, err := s.importHeartbeats(ctx, batch.ID, resolvedPath)
 	if err != nil {
-		errText := err.Error()
-		_ = s.store.UpdateImportBatchStatus(ctx, batch.ID, "failed", 0, 0, &errText)
-		return nil, fmt.Errorf("create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	outputCSV := filepath.Join(tempDir, "heartbeats.csv")
-	if err := flattenBackupToCSV(ctx, resolvedPath, outputCSV); err != nil {
-		errText := err.Error()
-		_ = s.store.UpdateImportBatchStatus(ctx, batch.ID, "failed", 0, 0, &errText)
-		return nil, err
-	}
-
-	imported, skipped, err := s.store.ImportHeartbeatsFromCSV(ctx, outputCSV, batch.ID)
-	if err != nil {
-		errText := err.Error()
-		_ = s.store.UpdateImportBatchStatus(ctx, batch.ID, "failed", 0, 0, &errText)
 		return nil, err
 	}
 
@@ -146,6 +103,76 @@ func (s *ImportService) ImportBackupFile(ctx context.Context, options ImportOpti
 	}, nil
 }
 
+func resolveImportOptions(options ImportOptions) (resolvedPath, format string, err error) {
+	resolvedPath, err = filepath.Abs(options.FilePath)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve import file path: %w", err)
+	}
+
+	format = options.Format
+	if format == "" {
+		format = "backup-json"
+	}
+	if format != "backup-json" {
+		return "", "", fmt.Errorf("unsupported import format %q", format)
+	}
+	if !strings.HasSuffix(strings.ToLower(resolvedPath), ".json") && !strings.HasSuffix(strings.ToLower(resolvedPath), ".json.gz") {
+		return "", "", fmt.Errorf("import file must end with .json or .json.gz")
+	}
+
+	info, err := os.Stat(resolvedPath)
+	if err != nil {
+		return "", "", fmt.Errorf("stat import file: %w", err)
+	}
+	if info.IsDir() {
+		return "", "", fmt.Errorf("import file must not be a directory")
+	}
+
+	return resolvedPath, format, nil
+}
+
+func (s *ImportService) importProfileSnapshot(ctx context.Context, batchID string, rawUser json.RawMessage) error {
+	if len(rawUser) == 0 {
+		return nil
+	}
+
+	snapshot, err := mapBackupUserToSnapshot(rawUser)
+	if err != nil {
+		return s.failBatch(ctx, batchID, err)
+	}
+	if err := s.store.UpsertProfileSnapshot(ctx, &snapshot); err != nil {
+		return s.failBatch(ctx, batchID, err)
+	}
+	return nil
+}
+
+func (s *ImportService) importHeartbeats(ctx context.Context, batchID, resolvedPath string) (imported, skipped int64, err error) {
+	tempDir, err := os.MkdirTemp("", "waka-import-*")
+	if err != nil {
+		return 0, 0, s.failBatch(ctx, batchID, fmt.Errorf("create temp dir: %w", err))
+	}
+	defer os.RemoveAll(tempDir)
+
+	outputCSV := filepath.Join(tempDir, "heartbeats.csv")
+	if flattenErr := flattenBackupToCSV(ctx, resolvedPath, outputCSV); flattenErr != nil {
+		return 0, 0, s.failBatch(ctx, batchID, flattenErr)
+	}
+
+	imported, skipped, err = s.store.ImportHeartbeatsFromCSV(ctx, outputCSV, batchID)
+	if err != nil {
+		return 0, 0, s.failBatch(ctx, batchID, err)
+	}
+	return imported, skipped, nil
+}
+
+func (s *ImportService) failBatch(ctx context.Context, batchID string, cause error) error {
+	errText := cause.Error()
+	if err := s.store.UpdateImportBatchStatus(ctx, batchID, "failed", 0, 0, &errText); err != nil {
+		return errors.Join(cause, err)
+	}
+	return cause
+}
+
 func readBackupMetadata(path string) (json.RawMessage, backupRange, error) {
 	reader, closeFn, err := openMaybeCompressed(path)
 	if err != nil {
@@ -154,45 +181,76 @@ func readBackupMetadata(path string) (json.RawMessage, backupRange, error) {
 	defer closeFn()
 
 	decoder := json.NewDecoder(reader)
-	token, err := decoder.Token()
-	if err != nil {
-		return nil, backupRange{}, fmt.Errorf("read backup root token: %w", err)
-	}
-	if delim, ok := token.(json.Delim); !ok || delim != '{' {
-		return nil, backupRange{}, fmt.Errorf("backup root must be a json object")
+	if err := expectBackupRootObject(decoder); err != nil {
+		return nil, backupRange{}, err
 	}
 
 	var rawUser json.RawMessage
 	var fileRange backupRange
 	for decoder.More() {
-		keyToken, err := decoder.Token()
+		key, err := nextBackupObjectKey(decoder)
 		if err != nil {
-			return nil, backupRange{}, fmt.Errorf("read backup key: %w", err)
+			return nil, backupRange{}, err
 		}
-		key, _ := keyToken.(string)
-
-		switch key {
-		case "user":
-			if err := decoder.Decode(&rawUser); err != nil {
-				return nil, backupRange{}, fmt.Errorf("decode backup user: %w", err)
-			}
-		case "range":
-			if err := decoder.Decode(&fileRange); err != nil {
-				return nil, backupRange{}, fmt.Errorf("decode backup range: %w", err)
-			}
-		default:
-			var discard json.RawMessage
-			if err := decoder.Decode(&discard); err != nil {
-				return nil, backupRange{}, fmt.Errorf("skip backup key %q: %w", key, err)
-			}
+		if err := decodeBackupMetadataField(decoder, key, &rawUser, &fileRange); err != nil {
+			return nil, backupRange{}, err
 		}
 
-		if len(rawUser) > 0 && (fileRange.Start != 0 || fileRange.End != 0) {
+		if hasBackupMetadata(rawUser, fileRange) {
 			break
 		}
 	}
 
 	return rawUser, fileRange, nil
+}
+
+func expectBackupRootObject(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("read backup root token: %w", err)
+	}
+
+	delim, ok := token.(json.Delim)
+	if !ok || delim != '{' {
+		return fmt.Errorf("backup root must be a json object")
+	}
+	return nil
+}
+
+func nextBackupObjectKey(decoder *json.Decoder) (string, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return "", fmt.Errorf("read backup key: %w", err)
+	}
+
+	key, ok := token.(string)
+	if !ok {
+		return "", fmt.Errorf("backup key must be a string, got %T", token)
+	}
+	return key, nil
+}
+
+func decodeBackupMetadataField(decoder *json.Decoder, key string, rawUser *json.RawMessage, fileRange *backupRange) error {
+	switch key {
+	case "user":
+		if err := decoder.Decode(rawUser); err != nil {
+			return fmt.Errorf("decode backup user: %w", err)
+		}
+	case "range":
+		if err := decoder.Decode(fileRange); err != nil {
+			return fmt.Errorf("decode backup range: %w", err)
+		}
+	default:
+		var discard json.RawMessage
+		if err := decoder.Decode(&discard); err != nil {
+			return fmt.Errorf("skip backup key %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+func hasBackupMetadata(rawUser json.RawMessage, fileRange backupRange) bool {
+	return len(rawUser) > 0 && (fileRange.Start != 0 || fileRange.End != 0)
 }
 
 func mapBackupUserToSnapshot(raw json.RawMessage) (domain.ProfileSnapshot, error) {

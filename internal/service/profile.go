@@ -14,8 +14,8 @@ type ProfileService struct {
 	cfg   *config.Config
 }
 
-func NewProfileService(store *store.Store, cfg *config.Config) *ProfileService {
-	return &ProfileService{store: store, cfg: cfg}
+func NewProfileService(dataStore *store.Store, cfg *config.Config) *ProfileService {
+	return &ProfileService{store: dataStore, cfg: cfg}
 }
 
 func (s *ProfileService) EffectiveSnapshot(ctx context.Context) (*domain.ProfileSnapshot, error) {
@@ -29,7 +29,7 @@ func (s *ProfileService) EffectiveSnapshot(ctx context.Context) (*domain.Profile
 
 	timeout := s.cfg.KeystrokeTimeoutMinutes
 	writesOnly := s.cfg.WritesOnly
-	profileJSON, _ := json.Marshal(map[string]any{
+	profileJSON, err := json.Marshal(map[string]any{
 		"username":     s.cfg.ProfileUsername,
 		"display_name": s.cfg.ProfileDisplayName,
 		"full_name":    s.cfg.ProfileFullName,
@@ -40,6 +40,9 @@ func (s *ProfileService) EffectiveSnapshot(ctx context.Context) (*domain.Profile
 		"timeout":      timeout,
 		"writes_only":  writesOnly,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	return &domain.ProfileSnapshot{
 		Username:       s.cfg.ProfileUsername,

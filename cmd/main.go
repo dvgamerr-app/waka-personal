@@ -30,11 +30,6 @@ func run() error {
 	log.Logger = logger
 
 	ctx := context.Background()
-	// if err := store.ApplyMigrations(ctx, cfg.DatabaseURL, cfg.MigrationDir, cfg.GooseTable); err != nil {
-	// 	logger.Error().Err(err).Msg("failed to apply migrations")
-	// 	return err
-	// }
-
 	db, err := store.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to connect to database")
@@ -55,7 +50,6 @@ func run() error {
 
 	logger.Info().Str("port", cfg.HTTPPort).Msg("Starting Gofiber")
 	go func() {
-
 		if err := app.Listen(":" + cfg.HTTPPort); err != nil && !strings.Contains(strings.ToLower(err.Error()), "server closed") {
 			logger.Error().Err(err).Msg("fiber server exited")
 		}

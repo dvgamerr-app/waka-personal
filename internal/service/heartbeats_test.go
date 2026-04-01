@@ -30,7 +30,7 @@ func TestNormalizeHeartbeat_UsesAliases(t *testing.T) {
 		t.Fatalf("ParseHeartbeatBody returned error: %v", err)
 	}
 
-	record, err := NormalizeHeartbeat(payloads[0], "machine-a", nil)
+	record, err := NormalizeHeartbeat(&payloads[0], "machine-a", nil)
 	if err != nil {
 		t.Fatalf("NormalizeHeartbeat returned error: %v", err)
 	}

@@ -23,6 +23,30 @@ type Store struct {
 	db *pgxpool.Pool
 }
 
+const upsertHeartbeatQuery = `
+		INSERT INTO heartbeats (
+			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
+			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
+			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
+			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
+			origin_payload, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12, $13, $14, $15,
+			$16, $17, $18, $19, $20, $21,
+			$22, $23, $24, $25, $26,
+			$27, NOW()
+		)
+		ON CONFLICT (dedupe_hash) DO UPDATE
+		SET updated_at = NOW()
+		RETURNING
+			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
+			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
+			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
+			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
+			origin_payload
+	`
+
 func New(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
 }
@@ -57,132 +81,153 @@ func (s *Store) UpsertHeartbeats(ctx context.Context, records []domain.Heartbeat
 		return nil, nil
 	}
 
-	query := `
-		INSERT INTO heartbeats (
-			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
-			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
-			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
-			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload, updated_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $19, $20, $21,
-			$22, $23, $24, $25, $26,
-			$27, NOW()
-		)
-		ON CONFLICT (dedupe_hash) DO UPDATE
-		SET updated_at = NOW()
-		RETURNING
-			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
-			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
-			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
-			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload
-	`
-
 	out := make([]domain.HeartbeatRecord, 0, len(records))
-	for _, record := range records {
-		dependencies, err := json.Marshal(record.Dependencies)
+	for i := range records {
+		scanned, err := s.upsertHeartbeatRecord(ctx, &records[i])
 		if err != nil {
-			return nil, fmt.Errorf("marshal dependencies for %s: %w", record.Entity, err)
+			return nil, err
 		}
-
-		var importBatchID any
-		if record.ImportBatchID != nil {
-			importBatchID = *record.ImportBatchID
-		}
-
-		var scanned domain.HeartbeatRecord
-		var sourceHeartbeatID *string
-		var deps []byte
-		var project, branch, language, projectFolder, machineName, sourceMachineNameID, plugin, sourceUserAgentID *string
-		err = s.db.QueryRow(
-			ctx,
-			query,
-			record.ID,
-			nullableString(record.SourceHeartbeatID),
-			record.DedupeHash,
-			record.Time,
-			record.SourceCreatedAt,
-			record.Entity,
-			record.Type,
-			record.Category,
-			nullableString(record.Project),
-			nullableString(record.Branch),
-			nullableString(record.Language),
-			record.ProjectRootCount,
-			nullableString(record.ProjectFolder),
-			record.Lineno,
-			record.Cursorpos,
-			record.Lines,
-			record.IsWrite,
-			record.IsUnsavedEntity,
-			record.AILineChanges,
-			record.HumanLineChanges,
-			nullableString(record.MachineName),
-			nullableString(record.SourceMachineNameID),
-			nullableString(record.Plugin),
-			nullableString(record.SourceUserAgentID),
-			dependencies,
-			importBatchID,
-			record.OriginPayload,
-		).Scan(
-			&scanned.ID,
-			&sourceHeartbeatID,
-			&scanned.DedupeHash,
-			&scanned.Time,
-			&scanned.SourceCreatedAt,
-			&scanned.Entity,
-			&scanned.Type,
-			&scanned.Category,
-			&project,
-			&branch,
-			&language,
-			&scanned.ProjectRootCount,
-			&projectFolder,
-			&scanned.Lineno,
-			&scanned.Cursorpos,
-			&scanned.Lines,
-			&scanned.IsWrite,
-			&scanned.IsUnsavedEntity,
-			&scanned.AILineChanges,
-			&scanned.HumanLineChanges,
-			&machineName,
-			&sourceMachineNameID,
-			&plugin,
-			&sourceUserAgentID,
-			&deps,
-			&importBatchID,
-			&scanned.OriginPayload,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("upsert heartbeat %s: %w", record.Entity, err)
-		}
-
-		scanned.SourceHeartbeatID = derefString(sourceHeartbeatID)
-		scanned.Project = derefString(project)
-		scanned.Branch = derefString(branch)
-		scanned.Language = derefString(language)
-		scanned.ProjectFolder = derefString(projectFolder)
-		scanned.MachineName = derefString(machineName)
-		scanned.SourceMachineNameID = derefString(sourceMachineNameID)
-		scanned.Plugin = derefString(plugin)
-		scanned.SourceUserAgentID = derefString(sourceUserAgentID)
-		if importBatchID != nil {
-			value := importBatchID.(string)
-			scanned.ImportBatchID = &value
-		}
-		if len(deps) > 0 {
-			if err := json.Unmarshal(deps, &scanned.Dependencies); err != nil {
-				return nil, fmt.Errorf("unmarshal dependencies for %s: %w", scanned.Entity, err)
-			}
-		}
-
 		out = append(out, scanned)
 	}
 
 	return out, nil
+}
+
+func (s *Store) upsertHeartbeatRecord(ctx context.Context, record *domain.HeartbeatRecord) (domain.HeartbeatRecord, error) {
+	dependencies, err := json.Marshal(record.Dependencies)
+	if err != nil {
+		return domain.HeartbeatRecord{}, fmt.Errorf("marshal dependencies for %s: %w", record.Entity, err)
+	}
+
+	var importBatchID any
+	if record.ImportBatchID != nil {
+		importBatchID = *record.ImportBatchID
+	}
+
+	result, err := s.scanUpsertedHeartbeat(ctx, record, dependencies, importBatchID)
+	if err != nil {
+		return domain.HeartbeatRecord{}, err
+	}
+	if err := hydrateUpsertedHeartbeat(&result); err != nil {
+		return domain.HeartbeatRecord{}, err
+	}
+	return result.scanned, nil
+}
+
+type heartbeatUpsertResult struct {
+	scanned             domain.HeartbeatRecord
+	sourceHeartbeatID   *string
+	project             *string
+	branch              *string
+	language            *string
+	projectFolder       *string
+	machineName         *string
+	sourceMachineNameID *string
+	plugin              *string
+	sourceUserAgentID   *string
+	deps                []byte
+	importBatchID       any
+}
+
+func (s *Store) scanUpsertedHeartbeat(ctx context.Context, record *domain.HeartbeatRecord, dependencies []byte, importBatchID any) (heartbeatUpsertResult, error) {
+	result := heartbeatUpsertResult{importBatchID: importBatchID}
+	err := s.db.QueryRow(
+		ctx,
+		upsertHeartbeatQuery,
+		record.ID,
+		nullableString(record.SourceHeartbeatID),
+		record.DedupeHash,
+		record.Time,
+		record.SourceCreatedAt,
+		record.Entity,
+		record.Type,
+		record.Category,
+		nullableString(record.Project),
+		nullableString(record.Branch),
+		nullableString(record.Language),
+		record.ProjectRootCount,
+		nullableString(record.ProjectFolder),
+		record.Lineno,
+		record.Cursorpos,
+		record.Lines,
+		record.IsWrite,
+		record.IsUnsavedEntity,
+		record.AILineChanges,
+		record.HumanLineChanges,
+		nullableString(record.MachineName),
+		nullableString(record.SourceMachineNameID),
+		nullableString(record.Plugin),
+		nullableString(record.SourceUserAgentID),
+		dependencies,
+		importBatchID,
+		record.OriginPayload,
+	).Scan(
+		&result.scanned.ID,
+		&result.sourceHeartbeatID,
+		&result.scanned.DedupeHash,
+		&result.scanned.Time,
+		&result.scanned.SourceCreatedAt,
+		&result.scanned.Entity,
+		&result.scanned.Type,
+		&result.scanned.Category,
+		&result.project,
+		&result.branch,
+		&result.language,
+		&result.scanned.ProjectRootCount,
+		&result.projectFolder,
+		&result.scanned.Lineno,
+		&result.scanned.Cursorpos,
+		&result.scanned.Lines,
+		&result.scanned.IsWrite,
+		&result.scanned.IsUnsavedEntity,
+		&result.scanned.AILineChanges,
+		&result.scanned.HumanLineChanges,
+		&result.machineName,
+		&result.sourceMachineNameID,
+		&result.plugin,
+		&result.sourceUserAgentID,
+		&result.deps,
+		&result.importBatchID,
+		&result.scanned.OriginPayload,
+	)
+	if err != nil {
+		return heartbeatUpsertResult{}, fmt.Errorf("upsert heartbeat %s: %w", record.Entity, err)
+	}
+	return result, nil
+}
+
+func hydrateUpsertedHeartbeat(result *heartbeatUpsertResult) error {
+	result.scanned.SourceHeartbeatID = derefString(result.sourceHeartbeatID)
+	result.scanned.Project = derefString(result.project)
+	result.scanned.Branch = derefString(result.branch)
+	result.scanned.Language = derefString(result.language)
+	result.scanned.ProjectFolder = derefString(result.projectFolder)
+	result.scanned.MachineName = derefString(result.machineName)
+	result.scanned.SourceMachineNameID = derefString(result.sourceMachineNameID)
+	result.scanned.Plugin = derefString(result.plugin)
+	result.scanned.SourceUserAgentID = derefString(result.sourceUserAgentID)
+	if err := setImportBatchID(&result.scanned, result.importBatchID); err != nil {
+		return err
+	}
+	if len(result.deps) > 0 {
+		if err := json.Unmarshal(result.deps, &result.scanned.Dependencies); err != nil {
+			return fmt.Errorf("unmarshal dependencies for %s: %w", result.scanned.Entity, err)
+		}
+	}
+	return nil
+}
+
+func setImportBatchID(record *domain.HeartbeatRecord, value any) error {
+	if value == nil {
+		return nil
+	}
+
+	batchID, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("unexpected import_batch_id type %T", value)
+	}
+	record.ImportBatchID = &batchID
+	return nil
 }
 
 func (s *Store) ListHeartbeatsByRange(ctx context.Context, start, end time.Time) ([]domain.HeartbeatRecord, error) {
@@ -220,12 +265,12 @@ func (s *Store) ListHeartbeatsForEntity(ctx context.Context, entity, project str
 	args := []any{entity}
 	argPos := 2
 	if project != "" {
-		builder.WriteString(fmt.Sprintf(" AND project = $%d", argPos))
+		_, _ = fmt.Fprintf(&builder, " AND project = $%d", argPos)
 		args = append(args, project)
 		argPos++
 	}
 	if projectRootCount != nil {
-		builder.WriteString(fmt.Sprintf(" AND project_root_count = $%d", argPos))
+		_, _ = fmt.Fprintf(&builder, " AND project_root_count = $%d", argPos)
 		args = append(args, *projectRootCount)
 	}
 	builder.WriteString(" ORDER BY time ASC, entity ASC")
@@ -313,12 +358,17 @@ func (s *Store) GetProfileSnapshot(ctx context.Context) (*domain.ProfileSnapshot
 	return &snapshot, nil
 }
 
-func (s *Store) UpsertProfileSnapshot(ctx context.Context, snapshot domain.ProfileSnapshot) error {
-	if len(snapshot.City) == 0 {
-		snapshot.City = []byte("null")
+func (s *Store) UpsertProfileSnapshot(ctx context.Context, snapshot *domain.ProfileSnapshot) error {
+	if snapshot == nil {
+		return errors.New("profile snapshot is required")
 	}
-	if len(snapshot.ProfileJSON) == 0 {
-		snapshot.ProfileJSON = []byte("{}")
+
+	value := *snapshot
+	if len(value.City) == 0 {
+		value.City = []byte("null")
+	}
+	if len(value.ProfileJSON) == 0 {
+		value.ProfileJSON = []byte("{}")
 	}
 
 	_, err := s.db.Exec(ctx, `
@@ -351,23 +401,23 @@ func (s *Store) UpsertProfileSnapshot(ctx context.Context, snapshot domain.Profi
 			profile_json = EXCLUDED.profile_json,
 			updated_at = NOW()
 	`,
-		nullableString(snapshot.ExternalUserID),
-		nullableString(snapshot.Username),
-		nullableString(snapshot.DisplayName),
-		nullableString(snapshot.FullName),
-		nullableString(snapshot.Email),
-		nullableString(snapshot.Photo),
-		nullableString(snapshot.ProfileURL),
-		nullableString(snapshot.Timezone),
-		nullableString(snapshot.Plan),
-		snapshot.TimeoutMinutes,
-		snapshot.WritesOnly,
-		snapshot.City,
-		nullableString(snapshot.LastBranch),
-		nullableString(snapshot.LastLanguage),
-		nullableString(snapshot.LastPlugin),
-		nullableString(snapshot.LastProject),
-		snapshot.ProfileJSON,
+		nullableString(value.ExternalUserID),
+		nullableString(value.Username),
+		nullableString(value.DisplayName),
+		nullableString(value.FullName),
+		nullableString(value.Email),
+		nullableString(value.Photo),
+		nullableString(value.ProfileURL),
+		nullableString(value.Timezone),
+		nullableString(value.Plan),
+		value.TimeoutMinutes,
+		value.WritesOnly,
+		value.City,
+		nullableString(value.LastBranch),
+		nullableString(value.LastLanguage),
+		nullableString(value.LastPlugin),
+		nullableString(value.LastProject),
+		value.ProfileJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert profile snapshot: %w", err)
@@ -375,7 +425,11 @@ func (s *Store) UpsertProfileSnapshot(ctx context.Context, snapshot domain.Profi
 	return nil
 }
 
-func (s *Store) CreateImportBatch(ctx context.Context, batch domain.ImportBatch) (*domain.ImportBatch, error) {
+func (s *Store) CreateImportBatch(ctx context.Context, batch *domain.ImportBatch) (*domain.ImportBatch, error) {
+	if batch == nil {
+		return nil, errors.New("import batch is required")
+	}
+
 	var result domain.ImportBatch
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO import_snapshot (
@@ -431,24 +485,56 @@ func (s *Store) UpdateImportBatchStatus(ctx context.Context, batchID, status str
 	return nil
 }
 
-func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID string) (int64, int64, error) {
+func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID string) (inserted, skipped int64, err error) {
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("acquire db connection: %w", err)
 	}
 	defer conn.Release()
 
-	tx, err := conn.Begin(ctx)
+	var tx pgx.Tx
+	tx, err = conn.Begin(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("begin import tx: %w", err)
 	}
 	defer func() {
-		if tx != nil {
-			_ = tx.Rollback(ctx)
+		if rollbackErr := rollbackImportTx(ctx, tx); rollbackErr != nil {
+			if err == nil {
+				err = rollbackErr
+				return
+			}
+			err = errors.Join(err, rollbackErr)
 		}
 	}()
 
-	if _, err := tx.Exec(ctx, `
+	if createErr := createTempImportTable(ctx, tx); createErr != nil {
+		return 0, 0, createErr
+	}
+	if copyErr := copyHeartbeatCSVIntoTempTable(ctx, tx, csvPath, batchID); copyErr != nil {
+		return 0, 0, copyErr
+	}
+
+	var totalRows int64
+	totalRows, err = countTempImportRows(ctx, tx)
+	if err != nil {
+		return 0, 0, err
+	}
+	inserted, err = insertTempImportRows(ctx, tx)
+	if err != nil {
+		return 0, 0, err
+	}
+	skipped = totalRows - inserted
+
+	if err = tx.Commit(ctx); err != nil {
+		return 0, 0, fmt.Errorf("commit import tx: %w", err)
+	}
+	tx = nil
+
+	return inserted, skipped, nil
+}
+
+func createTempImportTable(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `
 		CREATE TEMP TABLE import_heartbeats_tmp (
 			id TEXT NOT NULL,
 			source_heartbeat_id TEXT,
@@ -478,20 +564,25 @@ func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID st
 			import_batch_id TEXT,
 			origin_payload JSONB NOT NULL
 		) ON COMMIT DROP
-	`); err != nil {
-		return 0, 0, fmt.Errorf("create temp import table: %w", err)
+	`)
+	if err != nil {
+		return fmt.Errorf("create temp import table: %w", err)
 	}
+	return nil
+}
 
+func copyHeartbeatCSVIntoTempTable(ctx context.Context, tx pgx.Tx, csvPath, batchID string) error {
 	file, err := os.Open(csvPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("open csv %s: %w", csvPath, err)
+		return fmt.Errorf("open csv %s: %w", csvPath, err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
-	reader := csv.NewReader(file)
-	source, err := newHeartbeatCSVSource(reader, batchID)
+	source, err := newHeartbeatCSVSource(csv.NewReader(file), batchID)
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
 
 	if _, err := tx.CopyFrom(
@@ -506,14 +597,20 @@ func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID st
 		},
 		source,
 	); err != nil {
-		return 0, 0, fmt.Errorf("copy csv into temp table: %w", err)
+		return fmt.Errorf("copy csv into temp table: %w", err)
 	}
+	return nil
+}
 
+func countTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
 	var totalRows int64
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM import_heartbeats_tmp`).Scan(&totalRows); err != nil {
-		return 0, 0, fmt.Errorf("count temp import rows: %w", err)
+		return 0, fmt.Errorf("count temp import rows: %w", err)
 	}
+	return totalRows, nil
+}
 
+func insertTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO heartbeats (
 			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
@@ -533,18 +630,19 @@ func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID st
 		ON CONFLICT (dedupe_hash) DO NOTHING
 	`)
 	if err != nil {
-		return 0, 0, fmt.Errorf("insert temp import rows: %w", err)
+		return 0, fmt.Errorf("insert temp import rows: %w", err)
 	}
+	return tag.RowsAffected(), nil
+}
 
-	inserted := tag.RowsAffected()
-	skipped := totalRows - inserted
-
-	if err := tx.Commit(ctx); err != nil {
-		return 0, 0, fmt.Errorf("commit import tx: %w", err)
+func rollbackImportTx(ctx context.Context, tx pgx.Tx) error {
+	if tx == nil {
+		return nil
 	}
-	tx = nil
-
-	return inserted, skipped, nil
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		return fmt.Errorf("rollback import tx: %w", err)
+	}
+	return nil
 }
 
 func scanHeartbeats(rows pgx.Rows) ([]domain.HeartbeatRecord, error) {
@@ -705,7 +803,7 @@ type parsedHeartbeatCSV struct {
 	ImportBatchID       string
 }
 
-func (p parsedHeartbeatCSV) Values() []any {
+func (p *parsedHeartbeatCSV) Values() []any {
 	return []any{
 		p.Time,
 		p.SourceCreatedAt,
@@ -734,57 +832,22 @@ func (p parsedHeartbeatCSV) Values() []any {
 	}
 }
 
-func parseHeartbeatCSVRecord(record []string, batchID string) (string, string, parsedHeartbeatCSV, error) {
+func parseHeartbeatCSVRecord(record []string, batchID string) (id, dedupeHash string, parsed *parsedHeartbeatCSV, err error) {
 	if len(record) != 24 {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("expected 24 columns, got %d", len(record))
+		return "", "", nil, fmt.Errorf("expected 24 columns, got %d", len(record))
 	}
 
-	timestamp, err := strconv.ParseFloat(record[1], 64)
+	heartbeatTime, err := parseHeartbeatCSVTime(record[1])
 	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse time %q: %w", record[1], err)
-	}
-	heartbeatTime := time.Unix(0, int64(timestamp*float64(time.Second))).UTC()
-
-	sourceCreatedAt, err := parseOptionalTimestamp(record[2])
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse source_created_at %q: %w", record[2], err)
+		return "", "", nil, fmt.Errorf("parse time %q: %w", record[1], err)
 	}
 
-	projectRootCount, err := parseOptionalInt(record[9])
+	fields, err := parseHeartbeatCSVFields(record)
 	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse project_root_count: %w", err)
-	}
-	lineno, err := parseOptionalInt(record[11])
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse lineno: %w", err)
-	}
-	cursorpos, err := parseOptionalInt(record[12])
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse cursorpos: %w", err)
-	}
-	lines, err := parseOptionalInt(record[13])
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse lines: %w", err)
-	}
-	aiLineChanges, err := parseOptionalInt(record[16])
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse ai_line_changes: %w", err)
-	}
-	humanLineChanges, err := parseOptionalInt(record[17])
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse human_line_changes: %w", err)
+		return "", "", nil, err
 	}
 
-	isWrite, err := strconv.ParseBool(strings.ToLower(defaultIfEmpty(record[14], "false")))
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse is_write: %w", err)
-	}
-	isUnsavedEntity, err := strconv.ParseBool(strings.ToLower(defaultIfEmpty(record[15], "false")))
-	if err != nil {
-		return "", "", parsedHeartbeatCSV{}, fmt.Errorf("parse is_unsaved_entity: %w", err)
-	}
-
-	id, dedupeHash := domain.BuildDedupeIdentifiers(
+	id, dedupeHash = domain.BuildDedupeIdentifiers(
 		record[0],
 		heartbeatTime,
 		record[3],
@@ -793,31 +856,31 @@ func parseHeartbeatCSVRecord(record []string, batchID string) (string, string, p
 		record[6],
 		record[7],
 		record[8],
-		isWrite,
-		lineno,
-		cursorpos,
+		fields.IsWrite,
+		fields.Lineno,
+		fields.Cursorpos,
 		record[20],
 	)
 
-	parsed := parsedHeartbeatCSV{
+	parsed = &parsedHeartbeatCSV{
 		SourceHeartbeatID:   record[0],
 		Time:                heartbeatTime,
-		SourceCreatedAt:     sourceCreatedAt,
+		SourceCreatedAt:     fields.SourceCreatedAt,
 		Entity:              record[3],
 		Type:                defaultIfEmpty(record[4], "file"),
 		Category:            defaultIfEmpty(record[5], "coding"),
 		Project:             record[6],
 		Branch:              record[7],
 		Language:            record[8],
-		ProjectRootCount:    projectRootCount,
+		ProjectRootCount:    fields.ProjectRootCount,
 		ProjectFolder:       record[10],
-		Lineno:              lineno,
-		Cursorpos:           cursorpos,
-		Lines:               lines,
-		IsWrite:             isWrite,
-		IsUnsavedEntity:     isUnsavedEntity,
-		AILineChanges:       aiLineChanges,
-		HumanLineChanges:    humanLineChanges,
+		Lineno:              fields.Lineno,
+		Cursorpos:           fields.Cursorpos,
+		Lines:               fields.Lines,
+		IsWrite:             fields.IsWrite,
+		IsUnsavedEntity:     fields.IsUnsavedEntity,
+		AILineChanges:       fields.AILineChanges,
+		HumanLineChanges:    fields.HumanLineChanges,
 		MachineName:         record[18],
 		SourceMachineNameID: record[19],
 		Plugin:              record[20],
@@ -828,6 +891,70 @@ func parseHeartbeatCSVRecord(record []string, batchID string) (string, string, p
 	}
 
 	return id, dedupeHash, parsed, nil
+}
+
+type parsedHeartbeatCSVFields struct {
+	SourceCreatedAt  *time.Time
+	ProjectRootCount *int
+	Lineno           *int
+	Cursorpos        *int
+	Lines            *int
+	AILineChanges    *int
+	HumanLineChanges *int
+	IsWrite          bool
+	IsUnsavedEntity  bool
+}
+
+func parseHeartbeatCSVTime(value string) (time.Time, error) {
+	timestamp, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(0, int64(timestamp*float64(time.Second))).UTC(), nil
+}
+
+func parseHeartbeatCSVFields(record []string) (parsedHeartbeatCSVFields, error) {
+	fields := parsedHeartbeatCSVFields{}
+	var err error
+
+	fields.SourceCreatedAt, err = parseOptionalTimestamp(record[2])
+	if err != nil {
+		return fields, fmt.Errorf("parse source_created_at %q: %w", record[2], err)
+	}
+	fields.ProjectRootCount, err = parseOptionalInt(record[9])
+	if err != nil {
+		return fields, fmt.Errorf("parse project_root_count: %w", err)
+	}
+	fields.Lineno, err = parseOptionalInt(record[11])
+	if err != nil {
+		return fields, fmt.Errorf("parse lineno: %w", err)
+	}
+	fields.Cursorpos, err = parseOptionalInt(record[12])
+	if err != nil {
+		return fields, fmt.Errorf("parse cursorpos: %w", err)
+	}
+	fields.Lines, err = parseOptionalInt(record[13])
+	if err != nil {
+		return fields, fmt.Errorf("parse lines: %w", err)
+	}
+	fields.AILineChanges, err = parseOptionalInt(record[16])
+	if err != nil {
+		return fields, fmt.Errorf("parse ai_line_changes: %w", err)
+	}
+	fields.HumanLineChanges, err = parseOptionalInt(record[17])
+	if err != nil {
+		return fields, fmt.Errorf("parse human_line_changes: %w", err)
+	}
+	fields.IsWrite, err = parseOptionalBool(record[14], false)
+	if err != nil {
+		return fields, fmt.Errorf("parse is_write: %w", err)
+	}
+	fields.IsUnsavedEntity, err = parseOptionalBool(record[15], false)
+	if err != nil {
+		return fields, fmt.Errorf("parse is_unsaved_entity: %w", err)
+	}
+
+	return fields, nil
 }
 
 func nullableString(value string) any {
@@ -853,6 +980,10 @@ func parseOptionalInt(value string) (*int, error) {
 		return nil, err
 	}
 	return &parsed, nil
+}
+
+func parseOptionalBool(value string, fallback bool) (bool, error) {
+	return strconv.ParseBool(strings.ToLower(defaultIfEmpty(value, strconv.FormatBool(fallback))))
 }
 
 func parseOptionalTimestamp(value string) (*time.Time, error) {
