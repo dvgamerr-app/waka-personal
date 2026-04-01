@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http/httptest"
@@ -11,6 +12,9 @@ import (
 	"waka-personal/internal/config"
 	"waka-personal/internal/domain"
 	"waka-personal/internal/service"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type stubAuth struct {
@@ -121,5 +125,44 @@ func TestNewApp_StatusbarTodayShape(t *testing.T) {
 	}
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestNewApp_LogsAPIRequestsAtDebugLevel(t *testing.T) {
+	var buffer bytes.Buffer
+	previousLogger := log.Logger
+	previousLevel := zerolog.GlobalLevel()
+	log.Logger = zerolog.New(&buffer)
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	t.Cleanup(func() {
+		log.Logger = previousLogger
+		zerolog.SetGlobalLevel(previousLevel)
+	})
+
+	app := NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &Checker{}, Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/users/current/statusbar/today?api_key=secret", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	output := buffer.String()
+	for _, expected := range []string{
+		"\"message\":\"api request\"",
+		"\"method\":\"GET\"",
+		"\"path\":\"/api/v1/users/current/statusbar/today?api_key=secret\"",
+		"\"status\":200",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected log output to contain %s, got %s", expected, output)
+		}
 	}
 }

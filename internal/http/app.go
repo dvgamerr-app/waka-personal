@@ -68,6 +68,7 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 		AllowMethods:     "GET,POST,DELETE,OPTIONS",
 		AllowCredentials: false,
 	}))
+	app.Use("/api", apiDebugLogger())
 
 	app.Get("/healthz/live", func(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
