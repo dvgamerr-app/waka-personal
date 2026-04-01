@@ -38,7 +38,32 @@ const upsertHeartbeatQuery = `
 			$27, NOW()
 		)
 		ON CONFLICT (dedupe_hash) DO UPDATE
-		SET updated_at = NOW()
+		SET source_heartbeat_id = EXCLUDED.source_heartbeat_id,
+			time = EXCLUDED.time,
+			source_created_at = EXCLUDED.source_created_at,
+			entity = EXCLUDED.entity,
+			type = EXCLUDED.type,
+			category = EXCLUDED.category,
+			project = EXCLUDED.project,
+			branch = EXCLUDED.branch,
+			language = EXCLUDED.language,
+			project_root_count = EXCLUDED.project_root_count,
+			project_folder = EXCLUDED.project_folder,
+			lineno = EXCLUDED.lineno,
+			cursorpos = EXCLUDED.cursorpos,
+			lines = EXCLUDED.lines,
+			is_write = EXCLUDED.is_write,
+			is_unsaved_entity = EXCLUDED.is_unsaved_entity,
+			ai_line_changes = EXCLUDED.ai_line_changes,
+			human_line_changes = EXCLUDED.human_line_changes,
+			machine_name = EXCLUDED.machine_name,
+			source_machine_name_id = EXCLUDED.source_machine_name_id,
+			plugin = EXCLUDED.plugin,
+			source_user_agent_id = EXCLUDED.source_user_agent_id,
+			dependencies = EXCLUDED.dependencies,
+			import_batch_id = EXCLUDED.import_batch_id,
+			origin_payload = EXCLUDED.origin_payload,
+			updated_at = NOW()
 		RETURNING
 			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,

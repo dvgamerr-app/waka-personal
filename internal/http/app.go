@@ -99,7 +99,10 @@ func registerUserRoutes(app *fiber.App, services Services) {
 
 func authenticateRequest(auth Authenticator) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		return auth.Validate(c.Query("api_key"), c.Get("Authorization"))
+		if err := auth.Validate(c.Query("api_key"), c.Get("Authorization")); err != nil {
+			return err
+		}
+		return c.Next()
 	}
 }
 

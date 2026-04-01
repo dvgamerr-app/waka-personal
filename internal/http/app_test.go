@@ -115,6 +115,35 @@ func TestNewApp_FileExpertsAcceptsDoubleEncodedJSON(t *testing.T) {
 	}
 }
 
+func TestNewApp_HeartbeatsBulkExecutesHandler(t *testing.T) {
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+
+	req := httptest.NewRequest("POST", "/api/v1/users/current/heartbeats.bulk", strings.NewReader(`[{"entity":"/tmp/main.go","time":1710000000}]`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d with body %s", resp.StatusCode, string(bodyBytes))
+	}
+	for _, expected := range []string{`"accepted":1`, `"id":"hb-1"`, `"entity":"/tmp/main.go"`} {
+		if !strings.Contains(string(bodyBytes), expected) {
+			t.Fatalf("expected response body to contain %s, got %s", expected, string(bodyBytes))
+		}
+	}
+}
+
 func TestNewApp_StatusbarTodayShape(t *testing.T) {
 	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
 		Auth:       stubAuth{},
