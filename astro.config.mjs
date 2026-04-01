@@ -2,7 +2,18 @@ import { defineConfig } from 'astro/config'
 import { fileURLToPath } from 'node:url'
 import svelte from '@astrojs/svelte'
 import tailwindcss from '@tailwindcss/vite'
+import { loadEnv } from 'vite'
 import { getAdapter as getBunAdapter } from '@nurodev/astro-bun'
+
+const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '')
+const apiProxyTarget = env.API_PROXY_TARGET || 'http://127.0.0.1:8080'
+
+const silenceWatcherListenerWarning = () => ({
+  name: 'silence-watcher-listener-warning',
+  configureServer(server) {
+    server.watcher.setMaxListeners(20)
+  },
+})
 
 const bunAdapter = (options = {}) => {
   let command = 'build'
@@ -44,13 +55,19 @@ export default defineConfig({
     host: false,
   },
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [silenceWatcherListenerWarning(), tailwindcss()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
     server: {
+      proxy: {
+        '/api': {
+          target: apiProxyTarget,
+          changeOrigin: true,
+        },
+      },
       watch: {
         ignored: ['.github/**/*', '.vscode/**/*'],
       },
