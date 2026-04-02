@@ -32,6 +32,18 @@ go run ./cmd
 
 The API and importer automatically run pending `goose` migrations on startup.
 
+## Static Frontend Build
+
+The Astro frontend now builds as a static site. Dashboard data is fetched by the React island in the browser instead of during Astro SSR.
+
+If the frontend and Go API share the same origin, leave `PUBLIC_API_BASE` empty and keep using the `/api` path.
+
+If you serve the static frontend from a different origin, set:
+
+- `PUBLIC_API_BASE` to the API origin, for example `http://localhost:8080`
+- `PUBLIC_APP_TIMEZONE` to the timezone the dashboard should request
+- `PUBLIC_APP_API_KEY` to the same value as `APP_API_KEY` when API auth is enabled
+
 ## Migration Commands
 
 Run migrations explicitly with:

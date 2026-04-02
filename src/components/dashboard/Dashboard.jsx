@@ -18,44 +18,189 @@ import {
   topItems,
 } from './dashboardUtils.js'
 
+const statsRangeByLabel = {
+  today: 'last_7_days',
+  yesterday: 'last_7_days',
+  'last 7 days': 'last_7_days',
+  'last 7 days from yesterday': 'last_7_days',
+  'last 14 days': 'last_30_days',
+  'last 30 days': 'last_30_days',
+  'this week': 'last_7_days',
+  'last week': 'last_7_days',
+  'this month': 'last_30_days',
+  'last month': 'last_30_days',
+}
+
+const detectTimezone = (fallback = 'UTC') => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || fallback
+  } catch (_) {
+    return fallback
+  }
+}
+
+const normalizeDashboardData = (data = {}, fallbackTimezone = 'UTC') => ({
+  timezone: data.timezone || fallbackTimezone,
+  stats: data.stats || {},
+  summaries: data.summaries || [],
+  today: data.today || {},
+  projectDurations: data.projectDurations || [],
+  languageDurations: data.languageDurations || [],
+  errors: Array.isArray(data.errors) ? data.errors : [],
+})
+
+const buildApiUrl = (base, path, params = {}, apiKey = '') => {
+  const root = base || window.location.origin
+  const url = new URL(path, root)
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== '') {
+      url.searchParams.set(key, String(value))
+    }
+  }
+  if (apiKey) {
+    url.searchParams.set('api_key', apiKey)
+  }
+  return base ? url.toString() : `${url.pathname}${url.search}`
+}
+
+const fetchJson = async ({ base, path, params, apiKey }) => {
+  try {
+    const res = await fetch(buildApiUrl(base, path, params, apiKey))
+    if (!res.ok) {
+      return { data: null, error: `${path} returned ${res.status}` }
+    }
+    return { data: await res.json(), error: null }
+  } catch (error) {
+    return {
+      data: null,
+      error: `${path} failed: ${error instanceof Error ? error.message : 'request failed'}`,
+    }
+  }
+}
+
+const resolveStatsRange = (range) => {
+  const key = String(range || '').trim().toLowerCase()
+  return statsRangeByLabel[key] || 'last_7_days'
+}
+
+const formatTodayDate = (timezone) => {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date())
+  } catch (_) {
+    return new Intl.DateTimeFormat('en-CA').format(new Date())
+  }
+}
+
+const fetchDashboardData = async ({ base, apiKey, timezone, range, start, end }) => {
+  const selectedRange = range || 'Last 7 Days'
+  const todayDate = formatTodayDate(timezone)
+  const summaryParams =
+    start && end ? { start, end, timezone } : { range: selectedRange, timezone }
+
+  const [statsRes, summariesRes, todayRes, projectDurationsRes, languageDurationsRes] =
+    await Promise.all([
+      fetchJson({
+        base,
+        path: `/api/v1/users/current/stats/${resolveStatsRange(selectedRange)}`,
+        params: { timezone },
+        apiKey,
+      }),
+      fetchJson({
+        base,
+        path: '/api/v1/users/current/summaries',
+        params: summaryParams,
+        apiKey,
+      }),
+      fetchJson({
+        base,
+        path: '/api/v1/users/current/statusbar/today',
+        params: {},
+        apiKey,
+      }),
+      fetchJson({
+        base,
+        path: '/api/v1/users/current/durations',
+        params: { date: todayDate, slice_by: 'project', timezone },
+        apiKey,
+      }),
+      fetchJson({
+        base,
+        path: '/api/v1/users/current/durations',
+        params: { date: todayDate, slice_by: 'language', timezone },
+        apiKey,
+      }),
+    ])
+
+  return {
+    timezone,
+    stats: statsRes.data?.data || {},
+    summaries: summariesRes.data?.data || [],
+    today: todayRes.data?.data || {},
+    projectDurations: projectDurationsRes.data?.data || [],
+    languageDurations: languageDurationsRes.data?.data || [],
+    errors: [
+      statsRes.error,
+      summariesRes.error,
+      todayRes.error,
+      projectDurationsRes.error,
+      languageDurationsRes.error,
+    ].filter(Boolean),
+  }
+}
+
 // Wrap with ThemeProvider so the React island owns its own theme context
-export default function Dashboard({ data = {} }) {
+export default function Dashboard({ data = {}, config = {} }) {
   return (
     <ThemeProvider>
-      <DashboardContent data={data} />
+      <DashboardContent data={data} config={config} />
     </ThemeProvider>
   )
 }
 
-function DashboardContent({ data }) {
-  const [dashData, setDashData] = useState(data)
+function DashboardContent({ data, config }) {
+  const fallbackTimezone = config.timezone || detectTimezone()
+  const hasInitialData =
+    Object.keys(data.stats || {}).length > 0 ||
+    (data.summaries || []).length > 0 ||
+    Object.keys(data.today || {}).length > 0 ||
+    (data.projectDurations || []).length > 0 ||
+    (data.languageDurations || []).length > 0
+
+  const [dashData, setDashData] = useState(() =>
+    normalizeDashboardData(data, fallbackTimezone)
+  )
   const [loading, setLoading] = useState(false)
   const [selectedRange, setSelectedRange] = useState('Last 7 Days')
 
   const fetchDashboard = async ({ range, start, end }) => {
     setLoading(true)
     try {
-      const timezone = dashData.timezone || 'UTC'
-      const params = new URLSearchParams({ timezone })
-      if (range) params.set('range', range)
-      if (start) params.set('start', start)
-      if (end) params.set('end', end)
-      const res = await fetch(`/api/v1/users/current/dashboard?${params}`)
-      if (res.ok) {
-        const json = await res.json()
-        setDashData((prev) => ({
-          timezone: prev.timezone,
-          stats: json.stats || {},
-          summaries: json.summaries || [],
-          today: json.today || {},
-          projectDurations: json.project_durations || [],
-          languageDurations: json.language_durations || [],
-          errors: json.errors || [],
-        }))
-      }
-    } catch (_) {}
-    setLoading(false)
+      const timezone = dashData.timezone || fallbackTimezone
+      const nextData = await fetchDashboardData({
+        base: config.apiBase || '',
+        apiKey: config.apiKey || '',
+        timezone,
+        range,
+        start,
+        end,
+      })
+      setDashData(nextData)
+    } catch (error) {
+      setDashData((prev) => ({
+        ...prev,
+        errors: [error instanceof Error ? error.message : 'Failed to load dashboard data'],
+      }))
+    } finally {
+      setLoading(false)
+    }
   }
+
+  useEffect(() => {
+    if (hasInitialData) {
+      return
+    }
+    fetchDashboard({ range: selectedRange })
+  }, [])
 
   const stats = dashData.stats || {}
   const summaries = useMemo(() => normalizeItems(dashData.summaries), [dashData.summaries])
@@ -119,7 +264,7 @@ function DashboardContent({ data }) {
               <div className="text-foreground/55 mb-4 flex flex-wrap items-center gap-3 text-[10px] font-semibold tracking-[0.35em] uppercase">
                 <span>Waka Personal</span>
                 <span className="bg-border h-px w-8" />
-                <span>{todayRange.timezone || timezone}</span>
+                <span>{todayRange.timezone || dashData.timezone || fallbackTimezone}</span>
               </div>
 
               <h1 className="text-foreground max-w-4xl text-4xl font-semibold tracking-tight md:text-6xl">
