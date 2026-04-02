@@ -162,25 +162,25 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	nowUTC := time.Now().UTC().Format(time.RFC3339)
 
 	return map[string]any{
-		"total_seconds":                                 totalSeconds,
-		"total_seconds_including_other_language":        totalSecondsIncludingOther,
-		"human_readable_total":                          humanizeDuration(totalSeconds),
-		"human_readable_total_including_other_language": humanizeDuration(totalSecondsIncludingOther),
-		"daily_average":                                 dailyAverage,
-		"daily_average_including_other_language":        dailyAverageIncludingOther,
-		"human_readable_daily_average":                  humanizeDuration(dailyAverage),
+		"total_seconds":                                         totalSeconds,
+		"total_seconds_including_other_language":                totalSecondsIncludingOther,
+		"human_readable_total":                                  humanizeDuration(totalSeconds),
+		"human_readable_total_including_other_language":         humanizeDuration(totalSecondsIncludingOther),
+		"daily_average":                                         dailyAverage,
+		"daily_average_including_other_language":                dailyAverageIncludingOther,
+		"human_readable_daily_average":                          humanizeDuration(dailyAverage),
 		"human_readable_daily_average_including_other_language": humanizeDuration(dailyAverageIncludingOther),
-		"ai_additions":                                        aiAdditions,
-		"ai_deletions":                                        aiDeletions,
-		"human_additions":                                     humanAdditions,
-		"human_deletions":                                     humanDeletions,
-		"categories":                                          categories,
-		"projects":                                            projects,
-		"languages":                                           languages,
-		"editors":                                             editors,
-		"operating_systems":                                   operatingSystems,
-		"dependencies":                                        dependencies,
-		"machines":                                            machines,
+		"ai_additions":                                          aiAdditions,
+		"ai_deletions":                                          aiDeletions,
+		"human_additions":                                       humanAdditions,
+		"human_deletions":                                       humanDeletions,
+		"categories":                                            categories,
+		"projects":                                              projects,
+		"languages":                                             languages,
+		"editors":                                               editors,
+		"operating_systems":                                     operatingSystems,
+		"dependencies":                                          dependencies,
+		"machines":                                              machines,
 		"best_day": map[string]any{
 			"date":          bestDayDate,
 			"text":          humanizeDuration(bestDaySeconds),
@@ -273,7 +273,9 @@ func (s *QueryService) parseStatsWindow(ctx context.Context, value string, now t
 	case "last_6_months":
 		return rangeWindow{name: "last_6_months", humanName: "Last 6 Months", startLocal: today.AddDate(0, -6, 1), endLocal: tomorrow}, nil
 	case "last_year":
-		return rangeWindow{name: "last_year", humanName: "Last Year", startLocal: today.AddDate(-1, 0, 1), endLocal: tomorrow}, nil
+		lastYearStart := time.Date(today.Year()-1, time.January, 1, 0, 0, 0, 0, loc)
+		lastYearEnd := time.Date(today.Year()-1, time.December, 31, 0, 0, 0, 0, loc).Add(24 * time.Hour)
+		return rangeWindow{name: "last_year", humanName: "Last Year", startLocal: lastYearStart, endLocal: lastYearEnd}, nil
 	case "all_time":
 		start, _, err := s.store.GetHeartbeatBounds(ctx)
 		if err != nil {
@@ -337,6 +339,10 @@ func parseSummaryWindow(params domain.SummaryQueryParams, now time.Time, loc *ti
 		end := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, loc)
 		start := end.AddDate(0, -1, 0)
 		return rangeWindow{name: "Last Month", humanName: "Last Month", startLocal: start, endLocal: end}, nil
+	case "last year":
+		lastYearStart := time.Date(today.Year()-1, time.January, 1, 0, 0, 0, 0, loc)
+		lastYearEnd := time.Date(today.Year()-1, time.December, 31, 0, 0, 0, 0, loc).Add(24 * time.Hour)
+		return rangeWindow{name: "Last Year", humanName: "Last Year", startLocal: lastYearStart, endLocal: lastYearEnd}, nil
 	}
 
 	if strings.TrimSpace(params.Start) == "" || strings.TrimSpace(params.End) == "" {
@@ -376,11 +382,11 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 
 	summary := map[string]any{
 		"grand_total": mergeMaps(timeFieldsMap(totalSecondsIncludingOther), map[string]any{
-			"total_seconds":    totalSecondsIncludingOther,
-			"ai_additions":     aiAdditions,
-			"ai_deletions":     aiDeletions,
-			"human_additions":  humanAdditions,
-			"human_deletions":  humanDeletions,
+			"total_seconds":   totalSecondsIncludingOther,
+			"ai_additions":    aiAdditions,
+			"ai_deletions":    aiDeletions,
+			"human_additions": humanAdditions,
+			"human_deletions": humanDeletions,
 		}),
 		"categories":        categories,
 		"projects":          projects,

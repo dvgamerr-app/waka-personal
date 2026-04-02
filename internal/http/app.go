@@ -422,34 +422,17 @@ func parseCSVQuery(value string) []string {
 }
 
 func dashboardHandler(query QueryReader) fiber.Handler {
-	rangeToStats := map[string]string{
-		"today":                      "last_7_days",
-		"yesterday":                  "last_7_days",
-		"last 7 days":                "last_7_days",
-		"last 7 days from yesterday": "last_7_days",
-		"last 14 days":               "last_30_days",
-		"last 30 days":               "last_30_days",
-		"this week":                  "last_7_days",
-		"last week":                  "last_7_days",
-		"this month":                 "last_30_days",
-		"last month":                 "last_30_days",
-	}
-
 	return func(c *fiber.Ctx) error {
 		rangeParam := c.Query("range", "Last 7 Days")
 		start := c.Query("start")
 		end := c.Query("end")
 		timezone := c.Query("timezone", "UTC")
 
-		statsRange := rangeToStats[strings.ToLower(strings.TrimSpace(rangeParam))]
-		if statsRange == "" {
-			statsRange = "last_7_days"
-		}
-
 		loc, err := time.LoadLocation(timezone)
 		if err != nil {
 			loc = time.UTC
 		}
+		statsRange := dashboardStatsRange(rangeParam, time.Now().In(loc), loc)
 		todayDate := time.Now().In(loc).Format("2006-01-02")
 
 		summaryParams := domain.SummaryQueryParams{Timezone: timezone}
@@ -543,6 +526,32 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			"language_durations": langRes.data,
 			"errors":             apiErrors,
 		})
+	}
+}
+
+func dashboardStatsRange(rangeParam string, now time.Time, loc *time.Location) string {
+	rangeName := strings.ToLower(strings.TrimSpace(rangeParam))
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc)
+
+	switch rangeName {
+	case "this month":
+		return monthStart.Format("2006-01")
+	case "last month":
+		return monthStart.AddDate(0, -1, 0).Format("2006-01")
+	case "last year":
+		return fmt.Sprintf("%04d", monthStart.Year()-1)
+	case "today", "yesterday", "last 7 days", "last 7 days from yesterday", "this week", "last week":
+		return "last_7_days"
+	case "last 14 days", "last 30 days":
+		return "last_30_days"
+	default:
+		if _, err := time.ParseInLocation("2006-01", rangeName, loc); err == nil {
+			return rangeName
+		}
+		if _, err := time.ParseInLocation("2006", rangeName, loc); err == nil {
+			return rangeName
+		}
+		return "last_7_days"
 	}
 }
 

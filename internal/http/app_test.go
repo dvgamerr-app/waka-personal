@@ -3,10 +3,12 @@ package apihttp_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,6 +44,13 @@ func (s stubHeartbeats) Ingest(ctx context.Context, body []byte, machineName str
 
 type stubQuery struct {
 	fileExpertsPayload []map[string]any
+}
+
+type recordingQuery struct {
+	stubQuery
+	mu           sync.Mutex
+	statsCalls   []domain.StatsQueryParams
+	summaryCalls []domain.SummaryQueryParams
 }
 
 func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) (records []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
@@ -102,6 +111,20 @@ func (s stubQuery) StatusbarToday(ctx context.Context, now time.Time) (map[strin
 
 func (s stubQuery) FileExperts(ctx context.Context, entity, project string, projectRootCount *int, now time.Time) ([]map[string]any, error) {
 	return s.fileExpertsPayload, nil
+}
+
+func (q *recordingQuery) Summaries(ctx context.Context, params domain.SummaryQueryParams) ([]map[string]any, error) {
+	q.mu.Lock()
+	q.summaryCalls = append(q.summaryCalls, params)
+	q.mu.Unlock()
+	return q.stubQuery.Summaries(ctx, params)
+}
+
+func (q *recordingQuery) Stats(ctx context.Context, params domain.StatsQueryParams) (map[string]any, error) {
+	q.mu.Lock()
+	q.statsCalls = append(q.statsCalls, params)
+	q.mu.Unlock()
+	return q.stubQuery.Stats(ctx, params)
 }
 
 func TestNewApp_RejectsUnauthorizedRequests(t *testing.T) {
@@ -237,5 +260,89 @@ func TestNewApp_LogsAPIRequestsAtDebugLevel(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected log output to contain %s, got %s", expected, output)
 		}
+	}
+}
+
+func TestNewApp_DashboardMapsLastMonthToCalendarStatsRange(t *testing.T) {
+	query := &recordingQuery{}
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      query,
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/users/current/dashboard?range=Last+Month&timezone=Asia%2FBangkok", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	loc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	now := time.Now().In(loc)
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc)
+	expectedStatsRange := monthStart.AddDate(0, -1, 0).Format("2006-01")
+
+	query.mu.Lock()
+	defer query.mu.Unlock()
+
+	if len(query.statsCalls) != 1 {
+		t.Fatalf("expected 1 stats call, got %d", len(query.statsCalls))
+	}
+	if query.statsCalls[0].Range != expectedStatsRange {
+		t.Fatalf("expected stats range %q, got %q", expectedStatsRange, query.statsCalls[0].Range)
+	}
+	if len(query.summaryCalls) != 1 {
+		t.Fatalf("expected 1 summaries call, got %d", len(query.summaryCalls))
+	}
+	if query.summaryCalls[0].Range != "Last Month" {
+		t.Fatalf("expected summaries range %q, got %q", "Last Month", query.summaryCalls[0].Range)
+	}
+}
+
+func TestNewApp_DashboardMapsLastYearToCalendarStatsRange(t *testing.T) {
+	query := &recordingQuery{}
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      query,
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/users/current/dashboard?range=Last+Year&timezone=Asia%2FBangkok", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	loc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	expectedStatsRange := fmt.Sprintf("%04d", time.Now().In(loc).Year()-1)
+
+	query.mu.Lock()
+	defer query.mu.Unlock()
+
+	if len(query.statsCalls) != 1 {
+		t.Fatalf("expected 1 stats call, got %d", len(query.statsCalls))
+	}
+	if query.statsCalls[0].Range != expectedStatsRange {
+		t.Fatalf("expected stats range %q, got %q", expectedStatsRange, query.statsCalls[0].Range)
+	}
+	if len(query.summaryCalls) != 1 {
+		t.Fatalf("expected 1 summaries call, got %d", len(query.summaryCalls))
+	}
+	if query.summaryCalls[0].Range != "Last Year" {
+		t.Fatalf("expected summaries range %q, got %q", "Last Year", query.summaryCalls[0].Range)
 	}
 }
