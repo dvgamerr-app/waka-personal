@@ -12,19 +12,20 @@ const PRESETS = [
   'Last Week',
   'This Month',
   'Last Month',
+  'Last Year',
   'Custom Range',
 ]
 
 export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
   const [open, setOpen] = useState(false)
-  const [pending, setPending] = useState(value)
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
+  const [awaitingCustom, setAwaitingCustom] = useState(value === 'Custom Range')
   const ref = useRef(null)
 
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') cancel()
+      if (e.key === 'Escape') setOpen(false)
     }
     const onClickOutside = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false)
@@ -38,26 +39,32 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
   }, [])
 
   const selectPreset = (preset) => {
-    setPending(preset)
-    if (preset !== 'Custom Range') {
-      setCustomStart('')
-      setCustomEnd('')
+    if (preset === 'Custom Range') {
+      setAwaitingCustom(true)
+      return
     }
+    setAwaitingCustom(false)
+    setCustomStart('')
+    setCustomEnd('')
+    setOpen(false)
+    onChange?.({ range: preset, start: null, end: null })
   }
 
-  const apply = () => {
+  const applyCustom = () => {
+    if (!customStart || !customEnd) return
     setOpen(false)
-    if (pending === 'Custom Range') {
-      onChange?.({ range: null, start: customStart, end: customEnd })
-    } else {
-      onChange?.({ range: pending, start: null, end: null })
-    }
+    onChange?.({ range: null, start: customStart, end: customEnd })
   }
 
-  const cancel = () => {
-    setPending(value)
-    setOpen(false)
+  const cancelCustom = () => {
+    setAwaitingCustom(false)
+    setCustomStart('')
+    setCustomEnd('')
   }
+
+  const displayLabel = value === 'Custom Range' && customStart && customEnd
+    ? `${customStart} → ${customEnd}`
+    : value
 
   return (
     <div className="relative" ref={ref}>
@@ -69,12 +76,12 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
         aria-expanded={open}
       >
         <CalendarDays size={14} />
-        <span>{value}</span>
+        <span>{displayLabel}</span>
       </button>
 
       {open && (
         <div
-          className="border-border bg-background absolute right-0 top-full z-50 mt-1 w-56 border shadow-xl"
+          className="border-border bg-background absolute right-0 top-full z-50 mt-1 w-64 border shadow-xl"
           role="listbox"
         >
           <div className="p-1">
@@ -83,11 +90,13 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
                 key={preset}
                 type="button"
                 role="option"
-                aria-selected={pending === preset}
+                aria-selected={value === preset || (preset === 'Custom Range' && awaitingCustom)}
                 className={`w-full px-3 py-2 text-left text-sm transition ${
-                  pending === preset
+                  value === preset && preset !== 'Custom Range'
                     ? 'bg-foreground text-background'
-                    : 'text-foreground hover:bg-foreground hover:text-background'
+                    : preset === 'Custom Range' && awaitingCustom
+                      ? 'bg-foreground text-background'
+                      : 'text-foreground hover:bg-foreground hover:text-background'
                 }`}
                 onClick={() => selectPreset(preset)}
               >
@@ -96,39 +105,46 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
             ))}
           </div>
 
-          {pending === 'Custom Range' && (
-            <div className="border-border space-y-2 border-t p-3">
-              <input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className="border-border bg-background text-foreground w-full border px-2 py-1 text-xs"
-              />
-              <input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className="border-border bg-background text-foreground w-full border px-2 py-1 text-xs"
-              />
+          {awaitingCustom && (
+            <div className="border-border border-t p-3">
+              <p className="text-foreground/55 mb-2 text-[10px] font-semibold tracking-[0.3em] uppercase">
+                Custom Range
+              </p>
+              <div className="space-y-2">
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="border-border bg-background text-foreground w-full border px-2 py-1.5 text-xs"
+                  placeholder="Start date"
+                />
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="border-border bg-background text-foreground w-full border px-2 py-1.5 text-xs"
+                  placeholder="End date"
+                />
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  className="bg-foreground text-background flex-1 px-3 py-2 text-xs font-semibold tracking-[0.3em] uppercase disabled:opacity-40"
+                  onClick={applyCustom}
+                  disabled={!customStart || !customEnd}
+                >
+                  Apply
+                </button>
+                <button
+                  type="button"
+                  className="border-border text-foreground hover:bg-foreground hover:text-background flex-1 border px-3 py-2 text-xs font-semibold tracking-[0.3em] uppercase transition"
+                  onClick={cancelCustom}
+                >
+                  Clear
+                </button>
+              </div>
             </div>
           )}
-
-          <div className="border-border flex gap-2 border-t p-3">
-            <button
-              type="button"
-              className="bg-foreground text-background flex-1 px-3 py-2 text-xs font-semibold tracking-[0.3em] uppercase"
-              onClick={apply}
-            >
-              Apply
-            </button>
-            <button
-              type="button"
-              className="border-border text-foreground hover:bg-foreground hover:text-background flex-1 border px-3 py-2 text-xs font-semibold tracking-[0.3em] uppercase transition"
-              onClick={cancel}
-            >
-              Cancel
-            </button>
-          </div>
         </div>
       )}
     </div>

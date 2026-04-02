@@ -43,8 +43,11 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
-export default function DailyTrendChart({ title = 'Daily Trend', subtitle = '', days = [] }) {
+const LONG_RANGES = new Set(['last year', 'last_year'])
+
+export default function DailyTrendChart({ title = 'Daily Trend', subtitle = '', days = [], range = '' }) {
   const entries = normalizeItems(days)
+  const showLine = !LONG_RANGES.has((range || '').toLowerCase()) && entries.length < 355
 
   const { chartData, chartConfig, categoryKeys } = useMemo(() => {
     if (!entries.length) return { chartData: [], chartConfig: {}, categoryKeys: [] }
@@ -117,13 +120,15 @@ export default function DailyTrendChart({ title = 'Daily Trend', subtitle = '', 
                 maxBarSize={36}
               />
             ))}
-            <Line
-              dataKey="__total"
-              type="linear"
-              stroke="#e2e8f0"
-              strokeWidth={2}
-              dot={{ fill: '#f8fafc', r: 3, strokeWidth: 0 }}
-            />
+            {showLine && (
+              <Line
+                dataKey="__total"
+                type="linear"
+                stroke="#e2e8f0"
+                strokeWidth={2}
+                dot={{ fill: '#f8fafc', r: 3, strokeWidth: 0 }}
+              />
+            )}
           </ComposedChart>
         </ChartContainer>
       )}

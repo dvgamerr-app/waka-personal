@@ -88,8 +88,7 @@ export const buildTrendSeries = (summaries) => {
   })
 }
 
-export const buildTimelineRows = (durations, key, start, end) => {
-  const windowStart = new Date(start || 0).getTime() / 1000
+export const buildTimelineRows = (durations, key, start, end) => {  const windowStart = new Date(start || 0).getTime() / 1000
   const windowEnd = new Date(end || 0).getTime() / 1000
   const windowSize = Math.max(1, windowEnd - windowStart)
   const grouped = new Map()
@@ -115,6 +114,40 @@ export const buildTimelineRows = (durations, key, start, end) => {
     .slice(0, 7)
 }
 
+export const buildDailyBreakdownRows = (summaries, key) => {
+  const days = normalizeItems(summaries)
+  const totalDays = Math.max(1, days.length)
+  const grouped = new Map()
+
+  days.forEach((day, dayIndex) => {
+    normalizeItems(day[key]).forEach((item) => {
+      const name = item.name || 'Unknown'
+      const seconds = Number(item.total_seconds) || 0
+      if (!grouped.has(name)) grouped.set(name, { name, totalSeconds: 0, rawSegments: [] })
+      const row = grouped.get(name)
+      row.totalSeconds += seconds
+      if (seconds > 0) {
+        row.rawSegments.push({
+          dayIndex,
+          left: (dayIndex / totalDays) * 100,
+          width: Math.max(0.8, (1 / totalDays) * 100 - 0.4),
+          duration: seconds,
+          date: day.range?.date,
+        })
+      }
+    })
+  })
+
+  return Array.from(grouped.values())
+    .sort((a, b) => b.totalSeconds - a.totalSeconds)
+    .slice(0, 7)
+    .map((row, i) => ({
+      name: row.name,
+      totalSeconds: row.totalSeconds,
+      segments: row.rawSegments.map((seg) => ({ ...seg, color: palette[i % palette.length] })),
+    }))
+}
+
 export const buildDeltaSeries = (summaries) =>
   normalizeItems(summaries).map((day) => ({
     date: day.range?.date,
@@ -135,3 +168,90 @@ export const maxDeltaValue = (series) =>
       item.humanDeletions,
     ])
   )
+
+export const computeRangeStats = (summaries) => {
+  const days = normalizeItems(summaries)
+  if (days.length === 0) return null
+
+  let totalSeconds = 0
+  let aiAdditions = 0
+  let aiDeletions = 0
+  let humanAdditions = 0
+  let humanDeletions = 0
+  let bestDay = null
+  const projectMap = new Map()
+  const languageMap = new Map()
+  const machineMap = new Map()
+  const categoryMap = new Map()
+
+  const accumulate = (map, items) => {
+    normalizeItems(items).forEach((item) => {
+      const name = item.name || item.machine_name_id || 'Unknown'
+      const sec = Number(item.total_seconds) || 0
+      map.set(name, (map.get(name) || 0) + sec)
+    })
+  }
+
+  for (const day of days) {
+    const ts = Number(day.grand_total?.total_seconds) || 0
+    totalSeconds += ts
+    aiAdditions += Number(day.grand_total?.ai_additions) || 0
+    aiDeletions += Number(day.grand_total?.ai_deletions) || 0
+    humanAdditions += Number(day.grand_total?.human_additions) || 0
+    humanDeletions += Number(day.grand_total?.human_deletions) || 0
+
+    if (!bestDay || ts > bestDay.totalSeconds) {
+      bestDay = {
+        date: day.range?.date,
+        text: day.grand_total?.text || formatShortDuration(ts),
+        totalSeconds: ts,
+      }
+    }
+
+    accumulate(projectMap, day.projects)
+    accumulate(languageMap, day.languages)
+    accumulate(machineMap, day.machines)
+    accumulate(categoryMap, day.categories)
+  }
+
+  const activeDays = days.filter((d) => (Number(d.grand_total?.total_seconds) || 0) > 0).length
+  const dailyAvgSeconds = activeDays > 0 ? Math.round(totalSeconds / activeDays) : 0
+  const categoryTotal = Math.max(1, Array.from(categoryMap.values()).reduce((s, v) => s + v, 0))
+
+  const toRanked = (map, grandTotal) => {
+    const total = grandTotal || Math.max(1, Array.from(map.values()).reduce((s, v) => s + v, 0))
+    return Array.from(map.entries())
+      .map(([name, total_seconds]) => ({
+        name,
+        total_seconds,
+        percent: (total_seconds / total) * 100,
+        text: formatShortDuration(total_seconds),
+      }))
+      .sort((a, b) => b.total_seconds - a.total_seconds)
+  }
+
+  return {
+    totalSeconds,
+    humanReadableTotal: formatShortDuration(totalSeconds),
+    dailyAvgSeconds,
+    humanReadableDailyAvg: formatShortDuration(dailyAvgSeconds),
+    activeDays,
+    totalDays: days.length,
+    bestDay,
+    aiAdditions,
+    aiDeletions,
+    humanAdditions,
+    humanDeletions,
+    projects: toRanked(projectMap, totalSeconds),
+    languages: toRanked(languageMap, totalSeconds),
+    machines: toRanked(machineMap, totalSeconds),
+    categories: Array.from(categoryMap.entries())
+      .map(([name, total_seconds]) => ({
+        name,
+        total_seconds,
+        percent: (total_seconds / categoryTotal) * 100,
+        text: formatShortDuration(total_seconds),
+      }))
+      .sort((a, b) => b.total_seconds - a.total_seconds),
+  }
+}

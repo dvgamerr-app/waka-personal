@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Activity, CalendarDays, BrainCircuit } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
 import ThemeToggle from './ThemeToggle'
 import StatCard from './StatCard'
@@ -9,27 +9,16 @@ import DeltaBars from './DeltaBars'
 import BreakdownCard from './BreakdownCard'
 import DateRangePicker from './DateRangePicker'
 import {
+  buildDailyBreakdownRows,
   buildDeltaSeries,
   buildTimelineRows,
   buildTrendSeries,
+  computeRangeStats,
   formatDayLabel,
   normalizeItems,
   palette,
   topItems,
 } from './dashboardUtils.js'
-
-const statsRangeByLabel = {
-  today: 'last_7_days',
-  yesterday: 'last_7_days',
-  'last 7 days': 'last_7_days',
-  'last 7 days from yesterday': 'last_7_days',
-  'last 14 days': 'last_30_days',
-  'last 30 days': 'last_30_days',
-  'this week': 'last_7_days',
-  'last week': 'last_7_days',
-  'this month': 'last_30_days',
-  'last month': 'last_30_days',
-}
 
 const detectTimezone = (fallback = 'UTC') => {
   try {
@@ -78,73 +67,41 @@ const fetchJson = async ({ base, path, params, apiKey }) => {
   }
 }
 
-const resolveStatsRange = (range) => {
-  const key = String(range || '').trim().toLowerCase()
-  return statsRangeByLabel[key] || 'last_7_days'
-}
-
-const formatTodayDate = (timezone) => {
-  try {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date())
-  } catch (_) {
-    return new Intl.DateTimeFormat('en-CA').format(new Date())
-  }
-}
 
 const fetchDashboardData = async ({ base, apiKey, timezone, range, start, end }) => {
   const selectedRange = range || 'Last 7 Days'
-  const todayDate = formatTodayDate(timezone)
-  const summaryParams =
-    start && end ? { start, end, timezone } : { range: selectedRange, timezone }
+  const params =
+    start && end
+      ? { start, end, timezone }
+      : { range: selectedRange, timezone }
 
-  const [statsRes, summariesRes, todayRes, projectDurationsRes, languageDurationsRes] =
-    await Promise.all([
-      fetchJson({
-        base,
-        path: `/api/v1/users/current/stats/${resolveStatsRange(selectedRange)}`,
-        params: { timezone },
-        apiKey,
-      }),
-      fetchJson({
-        base,
-        path: '/api/v1/users/current/summaries',
-        params: summaryParams,
-        apiKey,
-      }),
-      fetchJson({
-        base,
-        path: '/api/v1/users/current/statusbar/today',
-        params: {},
-        apiKey,
-      }),
-      fetchJson({
-        base,
-        path: '/api/v1/users/current/durations',
-        params: { date: todayDate, slice_by: 'project', timezone },
-        apiKey,
-      }),
-      fetchJson({
-        base,
-        path: '/api/v1/users/current/durations',
-        params: { date: todayDate, slice_by: 'language', timezone },
-        apiKey,
-      }),
-    ])
+  const { data, error } = await fetchJson({
+    base,
+    path: '/api/v1/users/current/dashboard',
+    params,
+    apiKey,
+  })
+
+  if (error || !data) {
+    return {
+      timezone,
+      stats: {},
+      summaries: [],
+      today: {},
+      projectDurations: [],
+      languageDurations: [],
+      errors: [error || 'Failed to load dashboard data'],
+    }
+  }
 
   return {
     timezone,
-    stats: statsRes.data?.data || {},
-    summaries: summariesRes.data?.data || [],
-    today: todayRes.data?.data || {},
-    projectDurations: projectDurationsRes.data?.data || [],
-    languageDurations: languageDurationsRes.data?.data || [],
-    errors: [
-      statsRes.error,
-      summariesRes.error,
-      todayRes.error,
-      projectDurationsRes.error,
-      languageDurationsRes.error,
-    ].filter(Boolean),
+    stats: data.stats || {},
+    summaries: data.summaries || [],
+    today: data.today || {},
+    projectDurations: data.project_durations || [],
+    languageDurations: data.language_durations || [],
+    errors: Array.isArray(data.errors) ? data.errors : [],
   }
 }
 
@@ -208,38 +165,48 @@ function DashboardContent({ data, config }) {
   const errors = useMemo(() => normalizeItems(dashData.errors), [dashData.errors])
   const todayRange = today.range || {}
 
+  const isMultiDay = summaries.length > 7
   const trendSeries = useMemo(() => buildTrendSeries(summaries), [summaries])
   const deltaSeries = useMemo(() => buildDeltaSeries(summaries), [summaries])
+  const hasDeltaData = useMemo(
+    () => deltaSeries.some((d) => d.aiAdditions > 0 || d.aiDeletions > 0 || d.humanAdditions > 0 || d.humanDeletions > 0),
+    [deltaSeries]
+  )
   const projectRows = useMemo(
     () =>
-      buildTimelineRows(
-        dashData.projectDurations,
-        'project',
-        todayRange.start,
-        todayRange.end
-      ),
-    [dashData.projectDurations, todayRange.start, todayRange.end]
+      isMultiDay
+        ? buildDailyBreakdownRows(summaries, 'projects')
+        : buildTimelineRows(dashData.projectDurations, 'project', todayRange.start, todayRange.end),
+    [isMultiDay, summaries, dashData.projectDurations, todayRange.start, todayRange.end]
   )
   const languageRows = useMemo(
     () =>
-      buildTimelineRows(
-        dashData.languageDurations,
-        'language',
-        todayRange.start,
-        todayRange.end
-      ),
-    [dashData.languageDurations, todayRange.start, todayRange.end]
+      isMultiDay
+        ? buildDailyBreakdownRows(summaries, 'languages')
+        : buildTimelineRows(
+            dashData.languageDurations,
+            'language',
+            todayRange.start,
+            todayRange.end
+          ),
+    [isMultiDay, summaries, dashData.languageDurations, todayRange.start, todayRange.end]
   )
-  const topProjects = useMemo(() => topItems(stats.projects, 6), [stats.projects])
-  const topLanguages = useMemo(() => topItems(stats.languages, 6), [stats.languages])
-  const topMachines = useMemo(() => topItems(stats.machines, 6), [stats.machines])
+  const timelineAxisLabels = useMemo(
+    () => (isMultiDay ? summaries.map((day) => formatDayLabel(day.range?.date)) : null),
+    [isMultiDay, summaries]
+  )
+  const rangeStats = useMemo(() => computeRangeStats(summaries), [summaries])
+
+  const topProjects = useMemo(() => topItems(rangeStats?.projects, 6), [rangeStats])
+  const topLanguages = useMemo(() => topItems(rangeStats?.languages, 6), [rangeStats])
+  const topMachines = useMemo(() => topItems(rangeStats?.machines, 6), [rangeStats])
   const topCategories = useMemo(
     () =>
-      topItems(stats.categories, 6).map((item, index) => ({
+      topItems(rangeStats?.categories, 6).map((item, index) => ({
         ...item,
         color: palette[index % palette.length],
       })),
-    [stats.categories]
+    [rangeStats]
   )
 
   const topProject = topProjects[0]
@@ -249,7 +216,8 @@ function DashboardContent({ data, config }) {
     selectedRange === 'Custom Range' ? 'custom range' : selectedRange.toLowerCase()
 
   const handleRangeChange = ({ range, start, end }) => {
-    if (range) setSelectedRange(range)
+    const nextRange = range || (start && end ? 'Custom Range' : selectedRange)
+    setSelectedRange(nextRange)
     fetchDashboard({ range, start, end })
   }
 
@@ -258,7 +226,12 @@ function DashboardContent({ data, config }) {
       <div className="dashboard-grid pointer-events-none fixed inset-0 opacity-70" />
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
-        <header className="border-border bg-background/80 border p-5 backdrop-blur-sm">
+        <header className="border-border bg-background/80 relative z-10 border p-5 backdrop-blur-sm">
+          {loading && (
+            <div className="absolute inset-x-0 top-0 h-[2px] overflow-hidden">
+              <div className="animate-loading-bar bg-sky-400 h-full w-1/3" />
+            </div>
+          )}
           <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-4xl">
               <div className="text-foreground/55 mb-4 flex flex-wrap items-center gap-3 text-[10px] font-semibold tracking-[0.35em] uppercase">
@@ -268,7 +241,7 @@ function DashboardContent({ data, config }) {
               </div>
 
               <h1 className="text-foreground max-w-4xl text-4xl font-semibold tracking-tight md:text-6xl">
-                {stats.human_readable_total_including_other_language || '0 secs'}
+                {rangeStats?.humanReadableTotal || stats.human_readable_total_including_other_language || '—'}
                 <span className="block text-base font-medium tracking-[0.25em] text-sky-400 uppercase md:mt-3 md:text-lg">
                   over {rangeLabel}
                 </span>
@@ -276,38 +249,42 @@ function DashboardContent({ data, config }) {
 
               <div className="text-foreground/65 mt-5 flex flex-wrap gap-3 text-sm">
                 {topProject && (
-                  <span className="border-border border px-3 py-2">
-                    Top project: {topProject.name}
+                  <span className="border-border border px-3 py-2 text-xs tracking-wide">
+                    <span className="text-foreground/40 mr-1.5">Project</span>
+                    {topProject.name}
                   </span>
                 )}
                 {topLanguage && (
-                  <span className="border-border border px-3 py-2">
-                    Top language: {topLanguage.name}
+                  <span className="border-border border px-3 py-2 text-xs tracking-wide">
+                    <span className="text-foreground/40 mr-1.5">Language</span>
+                    {topLanguage.name}
                   </span>
                 )}
                 {topMachine && (
-                  <span className="border-border border px-3 py-2">
-                    Main machine: {topMachine.name}
+                  <span className="border-border border px-3 py-2 text-xs tracking-wide">
+                    <span className="text-foreground/40 mr-1.5">Machine</span>
+                    {topMachine.name}
                   </span>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-col items-start gap-4 xl:items-end">
+            <div className="flex flex-col items-start gap-3 xl:items-end">
               <div className="flex items-center gap-3">
+                {loading && (
+                  <span className="text-foreground/40 flex items-center gap-1.5 text-[10px] tracking-[0.25em] uppercase">
+                    <span className="bg-sky-400 inline-block h-1.5 w-1.5 animate-pulse" />
+                    Updating
+                  </span>
+                )}
                 <ThemeToggle />
                 <DateRangePicker value={selectedRange} onChange={handleRangeChange} />
               </div>
-              {loading ? (
-                <p className="text-foreground/40 text-xs tracking-[0.25em] uppercase">
-                  Loading…
-                </p>
-              ) : (
-                <p className="text-foreground/60 max-w-sm text-sm xl:text-right">
-                  Mirrors WakaTime-style stats from your local heartbeats, then pushes the most
-                  useful signals up front.
-                </p>
-              )}
+              <p className="text-foreground/40 max-w-sm text-xs xl:text-right">
+                {rangeStats
+                  ? `${rangeStats.activeDays} active days · ${rangeStats.humanReadableDailyAvg} avg/day`
+                  : 'Local WakaTime-compatible stats'}
+              </p>
             </div>
           </div>
 
@@ -320,17 +297,22 @@ function DashboardContent({ data, config }) {
           )}
         </header>
 
+        <div className={`flex flex-col gap-6 transition-opacity duration-300 ${loading ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Daily Average"
-            value={stats.human_readable_daily_average_including_other_language || '0 secs'}
-            note={`${stats.days_minus_holidays || 0} active days in this range`}
+            value={rangeStats?.humanReadableDailyAvg || stats.human_readable_daily_average_including_other_language || '—'}
+            note={`${rangeStats?.activeDays ?? stats.days_minus_holidays ?? 0} active days in this range`}
             accent="#38bdf8"
           />
           <StatCard
             label="Best Day"
-            value={stats.best_day?.text || '0 secs'}
-            note={stats.best_day?.date ? formatDayLabel(stats.best_day.date) : 'No peak day yet'}
+            value={rangeStats?.bestDay?.text || stats.best_day?.text || '—'}
+            note={
+              (rangeStats?.bestDay?.date || stats.best_day?.date)
+                ? formatDayLabel(rangeStats?.bestDay?.date || stats.best_day?.date)
+                : 'No peak day yet'
+            }
             accent="#22c55e"
           />
           <StatCard
@@ -345,8 +327,8 @@ function DashboardContent({ data, config }) {
           />
           <StatCard
             label="AI vs Human"
-            value={`${(stats.ai_additions || 0).toLocaleString()} / ${(stats.human_additions || 0).toLocaleString()}`}
-            note="Additions over the last 7 days"
+            value={`${(rangeStats?.aiAdditions ?? stats.ai_additions ?? 0).toLocaleString()} / ${(rangeStats?.humanAdditions ?? stats.human_additions ?? 0).toLocaleString()}`}
+            note={`AI / human additions over ${rangeLabel}`}
             accent="#f59e0b"
           />
         </section>
@@ -356,6 +338,7 @@ function DashboardContent({ data, config }) {
             title="Daily Activity"
             subtitle="Stacked by top categories with total activity overlaid."
             days={trendSeries}
+            range={selectedRange}
           />
 
           <section className="border-border bg-background/70 border p-5 backdrop-blur-sm">
@@ -397,21 +380,25 @@ function DashboardContent({ data, config }) {
         <section className="grid gap-4 xl:grid-cols-2">
           <TimelineChart
             title="Project Timeline"
-            subtitle="Today sliced by project."
+            subtitle={isMultiDay ? `Daily breakdown by project over ${rangeLabel}.` : 'Today sliced by project.'}
             rows={projectRows}
+            axisLabels={timelineAxisLabels}
           />
           <TimelineChart
             title="Language Timeline"
-            subtitle="Today sliced by language."
+            subtitle={isMultiDay ? `Daily breakdown by language over ${rangeLabel}.` : 'Today sliced by language.'}
             rows={languageRows}
+            axisLabels={timelineAxisLabels}
           />
         </section>
 
+        {hasDeltaData && (
         <DeltaBars
           title="AI vs Human Line Changes"
           subtitle="Positive bars are additions, negative bars are deletions inferred from heartbeat line-change totals."
           series={deltaSeries}
         />
+        )}
 
         <section className="grid gap-4 xl:grid-cols-3">
           <BreakdownCard
@@ -434,24 +421,43 @@ function DashboardContent({ data, config }) {
           />
         </section>
 
-        <section className="border-border bg-background/70 border p-5 backdrop-blur-sm">
-          <div className="mb-4 flex flex-wrap gap-6 text-sm text-foreground/65">
-            <div className="flex items-start gap-3">
-              <CalendarDays size={16} className="mt-0.5 shrink-0 text-sky-400" />
+        <footer className="border-border/40 border-t pt-6 pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-4 text-xs text-foreground/40">
+            <div className="flex flex-wrap items-center gap-4">
               <span>
-                {stats.days_minus_holidays || 0} of {stats.days_including_holidays || 0} days had
-                measurable activity.
+                Built by{' '}
+                <a
+                  href="https://dvgamerr.app/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-foreground/60 hover:text-foreground transition underline underline-offset-2"
+                >
+                  dvgamerr
+                </a>
+              </span>
+              <span className="bg-border h-3 w-px" />
+              <a
+                href="https://github.com/dvgamerr/waka-personal"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-foreground/60 hover:text-foreground transition inline-flex items-center gap-1.5"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+                waka-personal
+              </a>
+              <span className="bg-border h-3 w-px" />
+              <span>
+                {rangeStats?.activeDays ?? 0}/{rangeStats?.totalDays ?? 0} active days in range
               </span>
             </div>
-            <div className="flex items-start gap-3">
-              <BrainCircuit size={16} className="mt-0.5 shrink-0 text-cyan-300" />
-              <span>
-                AI and human additions/deletions are inferred from heartbeat net line-change values
-                stored locally.
-              </span>
-            </div>
+            <span className="text-foreground/25 text-[10px] tracking-widest uppercase">
+              WakaTime-compatible · self-hosted
+            </span>
           </div>
-        </section>
+        </footer>
+        </div>
       </div>
 
       <style>{`
@@ -465,6 +471,13 @@ function DashboardContent({ data, config }) {
             radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 28%),
             radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.1), transparent 24%);
           background-size: 48px 48px, 48px 48px, 100% 100%, 100% 100%;
+        }
+        @keyframes loading-bar {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(400%); }
+        }
+        .animate-loading-bar {
+          animation: loading-bar 1.2s ease-in-out infinite;
         }
       `}</style>
     </div>

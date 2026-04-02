@@ -44,8 +44,9 @@
 # Frontend (Javascript)
 ### Stack / Arch
 
-- **Bun + Astro (SSR/API routes) + Svelte (interactive UI)**
-- Router = **Astro**, UI = **Svelte components**
+- **Bun + Astro (SSR/UI routing) + React (interactive UI, `.jsx`)**
+- Router = **Astro**, UI = **React components** in `src/components/`
+- State = plain `useState`/`useEffect`, no global state manager; theme via `src/stores/theme.jsx` context
 
 ### Code Rules (non-negotiable)
 
@@ -53,11 +54,30 @@
 - Format = **Prettier only** (`semi:false`, `singleQuote:true`)
 - Prefer `const` + arrow fn (avoid `function`)
 - Commit flow: **Husky + lint-staged** (format-on-commit)
-- **ห้ามเขียน API logic ใน Astro** (`src/pages/api/`) — API ทั้งหมดต้องเขียนใน **Go backend** (`internal/http/`) เท่านั้น; Astro ทำหน้าที่ SSR + UI routing เท่านั้น
+- **ห้ามเขียน API logic ใน Astro** (`src/pages/api/`) — API ทั้งหมดต้องเขียนใน **Go backend** (`internal/http/`) เท่านั้น; Astro ทำหน้าที่ SSR/routing เท่านั้น
 
 ### UI Rules
 
 - Reuse-first: เช็ค **`src/components/ui/`** ก่อนสร้างใหม่
-- ห้ามทำ `<input>`, `<button>`, modal เอง → ใช้ `Input.svelte`, `Button.svelte`, `Modal.svelte`
+- Chart helpers อยู่ใน **`src/components/dashboard/dashboardUtils.js`** — ใช้ก่อนสร้างใหม่
 - Styling = **Tailwind + theme tokens** (`text-foreground`, `bg-background`) รองรับ **dark/light**
 - **Design: No border-radius** — ห้ามใช้ `rounded-*` classes ทั้งหมด (sharp corners only)
+
+### Frontend Env Vars
+
+- `PUBLIC_API_BASE` — API origin (leave empty if frontend + API share same origin)
+- `PUBLIC_APP_TIMEZONE` — timezone for dashboard queries
+- `PUBLIC_APP_API_KEY` — same as backend `APP_API_KEY` when auth is enabled
+
+
+
+# Gotchas
+
+- **Auth is bypassed when `APP_API_KEY` is empty** — always set this in production
+- **docker-compose DB name is `dvgamerr`**, but config default is `waka_personal` — set `DATABASE_URL` explicitly
+- **DuckDB importer** is behind a build tag (`importer_duckdb.go` + stub `importer_duckdb_stub.go`) — normal builds use the stub
+- **Import batches are not auto-cleaned** on failure; retry is safe due to SHA256 deduplication
+- **WakaTime plugins send API key as Basic-auth username** — `Authorization: Basic base64(<key>:)`
+- When modifying heartbeat schema, check both the API ingest path AND the importer path
+
+See [README.md](README.md) for local setup, Docker commands, and migration usage.
