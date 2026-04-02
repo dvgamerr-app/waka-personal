@@ -36,6 +36,14 @@ The API and importer automatically run pending `goose` migrations on startup.
 
 The Astro frontend now builds as a static site. Dashboard data is fetched by the React island in the browser instead of during Astro SSR.
 
+Build the frontend with:
+
+```shell
+bun run build:dist
+```
+
+The Go server serves the built website directly from `dist/` by default. Override that path with `WEB_DIST_DIR` if you want to point at a different build output.
+
 If the frontend and Go API share the same origin, leave `PUBLIC_API_BASE` empty and keep using the `/api` path.
 
 If you serve the static frontend from a different origin, set:

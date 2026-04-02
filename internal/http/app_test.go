@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -223,6 +225,194 @@ func TestNewApp_StatusbarTodayShape(t *testing.T) {
 	}
 }
 
+func TestNewApp_ServesWebsiteFromDist(t *testing.T) {
+	distDir := newWebsiteDist(t, map[string]string{
+		"index.html":     "<!doctype html><html><body>website</body></html>",
+		"assets/app.js":  "console.log('website')",
+		"favicon.svg":    "<svg></svg>",
+		"_astro/app.css": "body{color:black}",
+	})
+
+	app := apihttp.NewApp(&config.Config{
+		CORSAllowOrigins: []string{"*"},
+		WebsiteDistDir:   distDir,
+	}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := apihttp.Shutdown(ctx, app); err != nil {
+			t.Fatalf("shutdown app: %v", err)
+		}
+	})
+
+	rootReq := httptest.NewRequest("GET", "/", http.NoBody)
+	rootResp, err := app.Test(rootReq)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = rootResp.Body.Close() })
+	if rootResp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", rootResp.StatusCode)
+	}
+
+	rootBody, err := io.ReadAll(rootResp.Body)
+	if err != nil {
+		t.Fatalf("read root response body: %v", err)
+	}
+	if !strings.Contains(string(rootBody), "website") {
+		t.Fatalf("expected root response to contain website markup, got %s", string(rootBody))
+	}
+
+	assetReq := httptest.NewRequest("GET", "/assets/app.js", http.NoBody)
+	assetResp, err := app.Test(assetReq)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = assetResp.Body.Close() })
+	if assetResp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", assetResp.StatusCode)
+	}
+
+	assetBody, err := io.ReadAll(assetResp.Body)
+	if err != nil {
+		t.Fatalf("read asset response body: %v", err)
+	}
+	if !strings.Contains(string(assetBody), "console.log('website')") {
+		t.Fatalf("expected asset response to contain built asset content, got %s", string(assetBody))
+	}
+}
+
+func TestNewApp_FallsBackToIndexForWebsiteRoutes(t *testing.T) {
+	distDir := newWebsiteDist(t, map[string]string{
+		"index.html": "<!doctype html><html><body>dashboard shell</body></html>",
+	})
+
+	app := apihttp.NewApp(&config.Config{
+		CORSAllowOrigins: []string{"*"},
+		WebsiteDistDir:   distDir,
+	}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := apihttp.Shutdown(ctx, app); err != nil {
+			t.Fatalf("shutdown app: %v", err)
+		}
+	})
+
+	req := httptest.NewRequest("GET", "/dashboard", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if !strings.Contains(string(body), "dashboard shell") {
+		t.Fatalf("expected website fallback to return index markup, got %s", string(body))
+	}
+}
+
+func TestNewApp_DoesNotFallbackForAPIRoutesOrMissingAssets(t *testing.T) {
+	distDir := newWebsiteDist(t, map[string]string{
+		"index.html": "<!doctype html><html><body>dashboard shell</body></html>",
+	})
+
+	app := apihttp.NewApp(&config.Config{
+		CORSAllowOrigins: []string{"*"},
+		WebsiteDistDir:   distDir,
+	}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := apihttp.Shutdown(ctx, app); err != nil {
+			t.Fatalf("shutdown app: %v", err)
+		}
+	})
+
+	for _, target := range []string{"/api/missing", "/missing.js"} {
+		req := httptest.NewRequest("GET", target, http.NoBody)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("app.Test returned error for %s: %v", target, err)
+		}
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("expected 404 for %s, got %d", target, resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read response body for %s: %v", target, err)
+		}
+		if strings.Contains(string(body), "dashboard shell") {
+			t.Fatalf("expected %s to avoid website fallback, got %s", target, string(body))
+		}
+	}
+}
+
+func TestNewApp_SetsSecurityHeaders(t *testing.T) {
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+
+	req := httptest.NewRequest("GET", "/healthz/live", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	headers := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+	}
+	for header, expected := range headers {
+		if got := resp.Header.Get(header); got != expected {
+			t.Fatalf("expected %s to be %q, got %q", header, expected, got)
+		}
+	}
+
+	csp := resp.Header.Get("Content-Security-Policy")
+	for _, expected := range []string{
+		"default-src 'self'",
+		"object-src 'none'",
+		"frame-ancestors 'none'",
+		"script-src 'self' 'unsafe-inline'",
+	} {
+		if !strings.Contains(csp, expected) {
+			t.Fatalf("expected CSP to contain %q, got %q", expected, csp)
+		}
+	}
+
+	permissionsPolicy := resp.Header.Get("Permissions-Policy")
+	for _, expected := range []string{"camera=()", "microphone=()", "payment=()"} {
+		if !strings.Contains(permissionsPolicy, expected) {
+			t.Fatalf("expected Permissions-Policy to contain %q, got %q", expected, permissionsPolicy)
+		}
+	}
+}
+
 func TestNewApp_LogsAPIRequestsAtDebugLevel(t *testing.T) {
 	var buffer bytes.Buffer
 	previousLogger := log.Logger
@@ -345,4 +535,36 @@ func TestNewApp_DashboardMapsLastYearToCalendarStatsRange(t *testing.T) {
 	if query.summaryCalls[0].Range != "Last Year" {
 		t.Fatalf("expected summaries range %q, got %q", "Last Year", query.summaryCalls[0].Range)
 	}
+}
+
+func newWebsiteDist(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	distDir, err := os.MkdirTemp("", "waka-personal-http-*")
+	if err != nil {
+		t.Fatalf("create website dist temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		var removeErr error
+		for range 10 {
+			removeErr = os.RemoveAll(distDir)
+			if removeErr == nil || os.IsNotExist(removeErr) {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Logf("cleanup website dist temp dir %s: %v", distDir, removeErr)
+	})
+
+	for relativePath, contents := range files {
+		fullPath := filepath.Join(distDir, relativePath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("create website dist dir for %s: %v", relativePath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write website dist file %s: %v", relativePath, err)
+		}
+	}
+
+	return distDir
 }

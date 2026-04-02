@@ -11,6 +11,7 @@ type Config struct {
 	LogFormat string
 
 	HTTPPort                string
+	WebsiteDistDir          string
 	DatabaseURL             string
 	AppTimezone             string
 	AppAPIKey               string
@@ -34,6 +35,7 @@ func Load() *Config {
 		LogFormat: getEnv("LOG_FORMAT", "json"),
 
 		HTTPPort:                getEnv("PORT", "8080"),
+		WebsiteDistDir:          getEnv("WEB_DIST_DIR", "dist"),
 		DatabaseURL:             getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/waka_personal?sslmode=disable"),
 		AppTimezone:             getEnv("APP_TIMEZONE", "UTC"),
 		AppAPIKey:               getEnv("APP_API_KEY", ""),

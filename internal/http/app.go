@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -52,6 +54,7 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 	configureAppMiddleware(app, cfg)
 	registerHealthRoutes(app, checker)
 	registerUserRoutes(app, services)
+	registerWebsiteRoutes(app, cfg)
 
 	return app
 }
@@ -69,6 +72,7 @@ func newAppErrorHandler() fiber.ErrorHandler {
 
 func configureAppMiddleware(app *fiber.App, cfg *config.Config) {
 	app.Use(requestid.New())
+	app.Use(securityHeadersMiddleware())
 	app.Use(recover.New())
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     strings.Join(cfg.CORSAllowOrigins, ","),
@@ -89,6 +93,46 @@ func configureAppMiddleware(app *fiber.App, cfg *config.Config) {
 		},
 	}))
 	app.Use("/api", apiDebugLogger())
+}
+
+func securityHeadersMiddleware() fiber.Handler {
+	csp := strings.Join([]string{
+		"default-src 'self'",
+		"base-uri 'self'",
+		"object-src 'none'",
+		"frame-ancestors 'none'",
+		"form-action 'self'",
+		"img-src 'self' data: https:",
+		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+		"font-src 'self' data: https://fonts.gstatic.com",
+		"script-src 'self' 'unsafe-inline'",
+		"connect-src 'self' http: https:",
+	}, "; ")
+
+	permissionsPolicy := strings.Join([]string{
+		"accelerometer=()",
+		"camera=()",
+		"geolocation=()",
+		"gyroscope=()",
+		"magnetometer=()",
+		"microphone=()",
+		"payment=()",
+		"usb=()",
+	}, ", ")
+
+	return func(c *fiber.Ctx) error {
+		c.Set("Content-Security-Policy", csp)
+		c.Set("Permissions-Policy", permissionsPolicy)
+		c.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Set("X-Content-Type-Options", "nosniff")
+		c.Set("X-Frame-Options", "DENY")
+
+		if requestIsHTTPS(c) {
+			c.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
+		return c.Next()
+	}
 }
 
 func registerHealthRoutes(app *fiber.App, checker *Checker) {
@@ -118,6 +162,66 @@ func registerUserRoutes(app *fiber.App, services Services) {
 	api.Get("/status_bar/today", statusbarTodayHandler(services.Query))
 	api.Post("/file_experts", fileExpertsHandler(services.Query))
 	api.Get("/dashboard", dashboardHandler(services.Query))
+}
+
+func registerWebsiteRoutes(app *fiber.App, cfg *config.Config) {
+	distDir := filepath.Clean(strings.TrimSpace(cfg.WebsiteDistDir))
+	if distDir == "" || distDir == "." {
+		return
+	}
+
+	indexPath := filepath.Join(distDir, "index.html")
+	info, err := os.Stat(indexPath)
+	if err != nil || info.IsDir() {
+		return
+	}
+
+	app.Static("/", distDir, fiber.Static{
+		Browse:   false,
+		Compress: true,
+		Index:    "index.html",
+	})
+
+	indexHandler := websiteIndexHandler(indexPath)
+	app.Get("/*", indexHandler)
+	app.Head("/*", indexHandler)
+}
+
+func websiteIndexHandler(indexPath string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if !shouldServeWebsiteIndex(c.Path()) {
+			return fiber.ErrNotFound
+		}
+		return c.SendFile(indexPath)
+	}
+}
+
+func shouldServeWebsiteIndex(path string) bool {
+	normalizedPath := strings.TrimSpace(strings.ToLower(path))
+	if normalizedPath == "" {
+		return true
+	}
+
+	if normalizedPath == "/api" || strings.HasPrefix(normalizedPath, "/api/") {
+		return false
+	}
+	if normalizedPath == "/healthz" || strings.HasPrefix(normalizedPath, "/healthz/") {
+		return false
+	}
+	if normalizedPath == "/_astro" || strings.HasPrefix(normalizedPath, "/_astro/") {
+		return false
+	}
+
+	return filepath.Ext(strings.TrimSuffix(normalizedPath, "/")) == ""
+}
+
+func requestIsHTTPS(c *fiber.Ctx) bool {
+	if strings.EqualFold(c.Protocol(), "https") {
+		return true
+	}
+
+	forwardedProto := strings.TrimSpace(strings.ToLower(c.Get("X-Forwarded-Proto")))
+	return strings.HasPrefix(forwardedProto, "https")
 }
 
 func authenticateRequest(auth Authenticator) fiber.Handler {
