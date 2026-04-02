@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
@@ -75,6 +76,18 @@ func configureAppMiddleware(app *fiber.App, cfg *config.Config) {
 		AllowMethods:     "GET,POST,DELETE,OPTIONS",
 		AllowCredentials: false,
 	}))
+	app.Use("/api", limiter.New(limiter.Config{
+		Max:        60,
+		Expiration: time.Minute,
+		KeyGenerator: func(_ *fiber.Ctx) string {
+			return "global"
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "rate limit exceeded",
+			})
+		},
+	}))
 	app.Use("/api", apiDebugLogger())
 }
 
@@ -92,6 +105,7 @@ func registerHealthRoutes(app *fiber.App, checker *Checker) {
 
 func registerUserRoutes(app *fiber.App, services Services) {
 	api := app.Group("/api/v1/users/current", authenticateRequest(services.Auth))
+	api.Use(cacheControlMiddleware())
 	api.Post("/heartbeats", postHeartbeatHandler(services.Heartbeats))
 	api.Post("/heartbeats.bulk", postBulkHeartbeatsHandler(services.Heartbeats))
 	api.Get("/heartbeats", getHeartbeatsHandler(services.Query))
@@ -527,6 +541,62 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			"errors":             apiErrors,
 		})
 	}
+}
+
+func cacheControlMiddleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if c.Method() != fiber.MethodGet {
+			return c.Next()
+		}
+		if err := c.Next(); err != nil {
+			return err
+		}
+		if requestIncludesToday(c) {
+			c.Set(fiber.HeaderCacheControl, "no-store")
+		} else {
+			c.Set(fiber.HeaderCacheControl, "public, max-age=86400")
+		}
+		return nil
+	}
+}
+
+func requestIncludesToday(c *fiber.Ctx) bool {
+	today := time.Now().UTC().Format("2006-01-02")
+	path := c.Path()
+
+	if strings.HasSuffix(path, "/statusbar/today") ||
+		strings.HasSuffix(path, "/status_bar/today") ||
+		strings.HasSuffix(path, "/dashboard") {
+		return true
+	}
+
+	if date := c.Query("date"); date != "" {
+		return date >= today
+	}
+
+	if end := c.Query("end"); end != "" {
+		return end >= today
+	}
+
+	if rangeParam := strings.TrimSpace(c.Query("range")); rangeParam != "" {
+		return !isPastPeriod(rangeParam, today)
+	}
+
+	return true
+}
+
+func isPastPeriod(rangeParam, today string) bool {
+	if len(rangeParam) == 7 {
+		if _, err := time.Parse("2006-01", rangeParam); err == nil {
+			return rangeParam < today[:7]
+		}
+	}
+	if len(rangeParam) == 4 {
+		if _, err := time.Parse("2006", rangeParam); err == nil {
+			return rangeParam < today[:4]
+		}
+	}
+	return false
 }
 
 func dashboardStatsRange(rangeParam string, now time.Time, loc *time.Location) string {

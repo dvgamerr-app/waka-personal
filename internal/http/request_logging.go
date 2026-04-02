@@ -2,6 +2,7 @@ package apihttp
 
 import (
 	"errors"
+	"net/url"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,7 +15,7 @@ func apiDebugLogger() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		startedAt := time.Now()
 		method := c.Method()
-		path := c.OriginalURL()
+		path := sanitizeLogPath(c.OriginalURL())
 		bytesIn := len(c.Body())
 
 		err := c.Next()
@@ -40,6 +41,20 @@ func apiDebugLogger() fiber.Handler {
 		event.Msg("api request")
 		return err
 	}
+}
+
+func sanitizeLogPath(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	q.Del("api_key")
+	u.RawQuery = q.Encode()
+	if u.RawQuery == "" {
+		return u.Path
+	}
+	return u.Path + "?" + u.RawQuery
 }
 
 func statusCodeForError(err error) int {

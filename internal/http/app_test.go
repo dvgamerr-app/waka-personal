@@ -254,7 +254,7 @@ func TestNewApp_LogsAPIRequestsAtDebugLevel(t *testing.T) {
 	for _, expected := range []string{
 		"\"message\":\"api request\"",
 		"\"method\":\"GET\"",
-		"\"path\":\"/api/v1/users/current/statusbar/today?api_key=secret\"",
+		"\"path\":\"/api/v1/users/current/statusbar/today\"",
 		"\"status\":200",
 	} {
 		if !strings.Contains(output, expected) {
