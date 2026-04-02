@@ -1,13 +1,13 @@
 import { useMemo } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from 'recharts'
 import { ChartContainer } from '@/components/ui/chart'
-import { normalizeItems, formatShortDuration } from './dashboardUtils.js'
+import { normalizeItems } from './dashboardUtils.js'
 
 const LEGEND = [
   { key: 'humanAdditions', label: 'Human add', color: '#84cc16' },
+  { key: 'humanDeletions', label: 'Human del', color: '#f43f5e' },
   { key: 'aiAdditions', label: 'AI add', color: '#38bdf8' },
   { key: 'aiDeletions', label: 'AI del', color: '#a78bfa' },
-  { key: 'humanDeletions', label: 'Human del', color: '#f43f5e' },
 ]
 
 const CHART_CONFIG = {
@@ -73,15 +73,21 @@ export default function DeltaBars({ title = 'AI vs Human', subtitle = '', series
         </div>
       ) : (
         <ChartContainer config={CHART_CONFIG} className="h-[280px] w-full">
-          <BarChart data={chartData} barCategoryGap="30%" barGap={2} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+          <BarChart
+            data={chartData}
+            stackOffset="sign"
+            barCategoryGap="30%"
+            barGap={0}
+            margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
+          >
             <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.08} />
             <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, opacity: 0.65 }} />
             <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 10, opacity: 0.5 }} width={48} />
             <ReferenceLine y={0} stroke="currentColor" strokeOpacity={0.3} />
-            <Bar dataKey="humanAdditions" stackId="add" fill="#84cc16" maxBarSize={20} radius={0} />
-            <Bar dataKey="aiAdditions" stackId="add" fill="#38bdf8" maxBarSize={20} radius={0} />
-            <Bar dataKey="aiDeletions" stackId="del" fill="#a78bfa" maxBarSize={20} radius={0} />
-            <Bar dataKey="humanDeletions" stackId="del" fill="#f43f5e" maxBarSize={20} radius={0} />
+            <Bar dataKey="humanAdditions" stackId="human" fill="#84cc16" maxBarSize={20} radius={0} />
+            <Bar dataKey="humanDeletions" stackId="human" fill="#f43f5e" maxBarSize={20} radius={0} />
+            <Bar dataKey="aiAdditions" stackId="ai" fill="#38bdf8" maxBarSize={20} radius={0} />
+            <Bar dataKey="aiDeletions" stackId="ai" fill="#a78bfa" maxBarSize={20} radius={0} />
           </BarChart>
         </ChartContainer>
       )}
