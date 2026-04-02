@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Activity } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ThemeProvider } from '@/stores/theme'
 import ThemeToggle from './ThemeToggle'
 import StatCard from './StatCard'
@@ -67,13 +68,9 @@ const fetchJson = async ({ base, path, params, apiKey }) => {
   }
 }
 
-
 const fetchDashboardData = async ({ base, apiKey, timezone, range, start, end }) => {
   const selectedRange = range || 'Last 7 Days'
-  const params =
-    start && end
-      ? { start, end, timezone }
-      : { range: selectedRange, timezone }
+  const params = start && end ? { start, end, timezone } : { range: selectedRange, timezone }
 
   const { data, error } = await fetchJson({
     base,
@@ -123,9 +120,7 @@ function DashboardContent({ data, config }) {
     (data.projectDurations || []).length > 0 ||
     (data.languageDurations || []).length > 0
 
-  const [dashData, setDashData] = useState(() =>
-    normalizeDashboardData(data, fallbackTimezone)
-  )
+  const [dashData, setDashData] = useState(() => normalizeDashboardData(data, fallbackTimezone))
   const [loading, setLoading] = useState(false)
   const [selectedRange, setSelectedRange] = useState('Last 7 Days')
 
@@ -169,7 +164,11 @@ function DashboardContent({ data, config }) {
   const trendSeries = useMemo(() => buildTrendSeries(summaries), [summaries])
   const deltaSeries = useMemo(() => buildDeltaSeries(summaries), [summaries])
   const hasDeltaData = useMemo(
-    () => deltaSeries.some((d) => d.aiAdditions > 0 || d.aiDeletions > 0 || d.humanAdditions > 0 || d.humanDeletions > 0),
+    () =>
+      deltaSeries.some(
+        (d) =>
+          d.aiAdditions > 0 || d.aiDeletions > 0 || d.humanAdditions > 0 || d.humanDeletions > 0
+      ),
     [deltaSeries]
   )
   const projectRows = useMemo(
@@ -212,8 +211,7 @@ function DashboardContent({ data, config }) {
   const topProject = topProjects[0]
   const topLanguage = topLanguages[0]
   const topMachine = topMachines[0]
-  const rangeLabel =
-    selectedRange === 'Custom Range' ? 'custom range' : selectedRange.toLowerCase()
+  const rangeLabel = selectedRange === 'Custom Range' ? 'custom range' : selectedRange.toLowerCase()
 
   const handleRangeChange = ({ range, start, end }) => {
     const nextRange = range || (start && end ? 'Custom Range' : selectedRange)
@@ -222,14 +220,14 @@ function DashboardContent({ data, config }) {
   }
 
   return (
-    <div className="dashboard-shell bg-background text-foreground min-h-screen">
+    <div className="bg-background text-foreground relative min-h-screen">
       <div className="dashboard-grid pointer-events-none fixed inset-0 opacity-70" />
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
         <header className="border-border bg-background/80 relative z-10 border p-5 backdrop-blur-sm">
           {loading && (
             <div className="absolute inset-x-0 top-0 h-[2px] overflow-hidden">
-              <div className="animate-loading-bar bg-sky-400 h-full w-1/3" />
+              <div className="animate-loading-bar h-full w-1/3 bg-sky-400" />
             </div>
           )}
           <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
@@ -241,7 +239,9 @@ function DashboardContent({ data, config }) {
               </div>
 
               <h1 className="text-foreground max-w-4xl text-4xl font-semibold tracking-tight md:text-6xl">
-                {rangeStats?.humanReadableTotal || stats.human_readable_total_including_other_language || '—'}
+                {rangeStats?.humanReadableTotal ||
+                  stats.human_readable_total_including_other_language ||
+                  '—'}
                 <span className="block text-base font-medium tracking-[0.25em] text-sky-400 uppercase md:mt-3 md:text-lg">
                   over {rangeLabel}
                 </span>
@@ -273,7 +273,7 @@ function DashboardContent({ data, config }) {
               <div className="flex items-center gap-3">
                 {loading && (
                   <span className="text-foreground/40 flex items-center gap-1.5 text-[10px] tracking-[0.25em] uppercase">
-                    <span className="bg-sky-400 inline-block h-1.5 w-1.5 animate-pulse" />
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse bg-sky-400" />
                     Updating
                   </span>
                 )}
@@ -297,173 +297,186 @@ function DashboardContent({ data, config }) {
           )}
         </header>
 
-        <div className={`flex flex-col gap-6 transition-opacity duration-300 ${loading ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Daily Average"
-            value={rangeStats?.humanReadableDailyAvg || stats.human_readable_daily_average_including_other_language || '—'}
-            note={`${rangeStats?.activeDays ?? stats.days_minus_holidays ?? 0} active days in this range`}
-            accent="#38bdf8"
-          />
-          <StatCard
-            label="Best Day"
-            value={rangeStats?.bestDay?.text || stats.best_day?.text || '—'}
-            note={
-              (rangeStats?.bestDay?.date || stats.best_day?.date)
-                ? formatDayLabel(rangeStats?.bestDay?.date || stats.best_day?.date)
-                : 'No peak day yet'
-            }
-            accent="#22c55e"
-          />
-          <StatCard
-            label="Today"
-            value={today.grand_total?.text || '0 secs'}
-            note={
-              today.projects?.[0]
-                ? `Leading project: ${today.projects[0].name}`
-                : 'No focused project yet'
-            }
-            accent="#818cf8"
-          />
-          <StatCard
-            label="AI vs Human"
-            value={`${(rangeStats?.aiAdditions ?? stats.ai_additions ?? 0).toLocaleString()} / ${(rangeStats?.humanAdditions ?? stats.human_additions ?? 0).toLocaleString()}`}
-            note={`AI / human additions over ${rangeLabel}`}
-            accent="#f59e0b"
-          />
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
-          <DailyTrendChart
-            title="Daily Activity"
-            subtitle="Stacked by top categories with total activity overlaid."
-            days={trendSeries}
-            range={selectedRange}
-          />
-
-          <section className="border-border bg-background/70 border p-5 backdrop-blur-sm">
-            <div className="mb-4 flex items-center gap-2">
-              <Activity size={16} className="text-sky-400" />
-              <p className="text-foreground/55 text-[10px] font-semibold tracking-[0.35em] uppercase">
-                Momentum Mix
-              </p>
-            </div>
-
-            {topCategories.length === 0 ? (
-              <div className="border-border text-foreground/55 border border-dashed p-8 text-sm">
-                No category data yet.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {topCategories.map((item) => (
-                  <div key={item.name}>
-                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                      <span className="text-foreground truncate font-medium">{item.name}</span>
-                      <span className="text-foreground/60">{item.text}</span>
-                    </div>
-                    <div className="border-border bg-foreground/[0.04] h-3 border">
-                      <div
-                        className="h-full"
-                        style={{
-                          width: `${Math.max(4, item.percent || 0)}%`,
-                          background: item.color,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        <div
+          className={`flex flex-col gap-6 transition-opacity duration-300 ${loading ? 'pointer-events-none opacity-50' : 'opacity-100'}`}
+        >
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Daily Average"
+              value={
+                rangeStats?.humanReadableDailyAvg ||
+                stats.human_readable_daily_average_including_other_language ||
+                '—'
+              }
+              note={`${rangeStats?.activeDays ?? stats.days_minus_holidays ?? 0} active days in this range`}
+              accent="#38bdf8"
+            />
+            <StatCard
+              label="Best Day"
+              value={rangeStats?.bestDay?.text || stats.best_day?.text || '—'}
+              note={
+                rangeStats?.bestDay?.date || stats.best_day?.date
+                  ? formatDayLabel(rangeStats?.bestDay?.date || stats.best_day?.date)
+                  : 'No peak day yet'
+              }
+              accent="#22c55e"
+            />
+            <StatCard
+              label="Today"
+              value={today.grand_total?.text || '0 secs'}
+              note={
+                today.projects?.[0]
+                  ? `Leading project: ${today.projects[0].name}`
+                  : 'No focused project yet'
+              }
+              accent="#818cf8"
+            />
+            <StatCard
+              label="AI vs Human"
+              value={`${(rangeStats?.aiAdditions ?? stats.ai_additions ?? 0).toLocaleString()} / ${(rangeStats?.humanAdditions ?? stats.human_additions ?? 0).toLocaleString()}`}
+              note={`AI / human additions over ${rangeLabel}`}
+              accent="#f59e0b"
+            />
           </section>
-        </section>
 
-        <section className="grid gap-4 xl:grid-cols-2">
-          <TimelineChart
-            title="Project Timeline"
-            subtitle={isMultiDay ? `Daily breakdown by project over ${rangeLabel}.` : 'Today sliced by project.'}
-            rows={projectRows}
-            axisLabels={timelineAxisLabels}
-          />
-          <TimelineChart
-            title="Language Timeline"
-            subtitle={isMultiDay ? `Daily breakdown by language over ${rangeLabel}.` : 'Today sliced by language.'}
-            rows={languageRows}
-            axisLabels={timelineAxisLabels}
-          />
-        </section>
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
+            <DailyTrendChart
+              title="Daily Activity"
+              subtitle="Stacked by top categories with total activity overlaid."
+              days={trendSeries}
+              range={selectedRange}
+            />
 
-        {hasDeltaData && (
-        <DeltaBars
-          title="AI vs Human Line Changes"
-          subtitle="Positive bars are additions, negative bars are deletions inferred from heartbeat line-change totals."
-          series={deltaSeries}
-        />
-        )}
+            <Card className="border-border/80 bg-background/75 shadow-none backdrop-blur-sm">
+              <CardHeader className="flex-row items-center gap-2 p-5 pb-0">
+                <Activity size={16} className="text-sky-400" />
+                <CardTitle className="text-foreground/55 text-[10px] font-semibold tracking-[0.35em] uppercase">
+                  Momentum Mix
+                </CardTitle>
+              </CardHeader>
 
-        <section className="grid gap-4 xl:grid-cols-3">
-          <BreakdownCard
-            title="Projects"
-            subtitle="Where the week was spent."
-            items={topProjects}
-            emptyLabel="No project breakdown available."
-          />
-          <BreakdownCard
-            title="Languages"
-            subtitle="What you actually wrote."
-            items={topLanguages}
-            emptyLabel="No language breakdown available."
-          />
-          <BreakdownCard
-            title="Machines"
-            subtitle="Which machines carried the load."
-            items={topMachines}
-            emptyLabel="No machine data available."
-          />
-        </section>
+              <CardContent className="p-5">
+                {topCategories.length === 0 ? (
+                  <div className="border-border text-foreground/55 border border-dashed p-8 text-sm">
+                    No category data yet.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {topCategories.map((item) => (
+                      <div key={item.name}>
+                        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                          <span className="text-foreground truncate font-medium">{item.name}</span>
+                          <span className="text-foreground/60">{item.text}</span>
+                        </div>
+                        <div className="border-border bg-foreground/[0.04] h-3 border">
+                          <div
+                            className="h-full"
+                            style={{
+                              width: `${Math.max(4, item.percent || 0)}%`,
+                              background: item.color,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </section>
 
-        <footer className="border-border/40 border-t pt-6 pb-2">
-          <div className="flex flex-wrap items-center justify-between gap-4 text-xs text-foreground/40">
-            <div className="flex flex-wrap items-center gap-4">
-              <span>
-                Built by{' '}
+          <section className="grid gap-4 xl:grid-cols-2">
+            <TimelineChart
+              title="Project Timeline"
+              subtitle={
+                isMultiDay
+                  ? `Daily breakdown by project over ${rangeLabel}.`
+                  : 'Today sliced by project.'
+              }
+              rows={projectRows}
+              axisLabels={timelineAxisLabels}
+            />
+            <TimelineChart
+              title="Language Timeline"
+              subtitle={
+                isMultiDay
+                  ? `Daily breakdown by language over ${rangeLabel}.`
+                  : 'Today sliced by language.'
+              }
+              rows={languageRows}
+              axisLabels={timelineAxisLabels}
+            />
+          </section>
+
+          {hasDeltaData && (
+            <DeltaBars
+              title="AI vs Human Line Changes"
+              subtitle="Positive bars are additions, negative bars are deletions inferred from heartbeat line-change totals."
+              series={deltaSeries}
+            />
+          )}
+
+          <section className="grid gap-4 xl:grid-cols-3">
+            <BreakdownCard
+              title="Projects"
+              subtitle="Where the week was spent."
+              items={topProjects}
+              emptyLabel="No project breakdown available."
+            />
+            <BreakdownCard
+              title="Languages"
+              subtitle="What you actually wrote."
+              items={topLanguages}
+              emptyLabel="No language breakdown available."
+            />
+            <BreakdownCard
+              title="Machines"
+              subtitle="Which machines carried the load."
+              items={topMachines}
+              emptyLabel="No machine data available."
+            />
+          </section>
+
+          <footer className="border-border/40 border-t pt-6 pb-2">
+            <div className="text-foreground/40 flex flex-wrap items-center justify-between gap-4 text-xs">
+              <div className="flex flex-wrap items-center gap-4">
+                <span>
+                  Built by{' '}
+                  <a
+                    href="https://dvgamerr.app/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-foreground/60 hover:text-foreground underline underline-offset-2 transition"
+                  >
+                    dvgamerr
+                  </a>
+                </span>
+                <span className="bg-border h-3 w-px" />
                 <a
-                  href="https://dvgamerr.app/"
+                  href="https://github.com/dvgamerr/waka-personal"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-foreground/60 hover:text-foreground transition underline underline-offset-2"
+                  className="text-foreground/60 hover:text-foreground inline-flex items-center gap-1.5 transition"
                 >
-                  dvgamerr
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                  </svg>
+                  waka-personal
                 </a>
-              </span>
-              <span className="bg-border h-3 w-px" />
-              <a
-                href="https://github.com/dvgamerr/waka-personal"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-foreground/60 hover:text-foreground transition inline-flex items-center gap-1.5"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-                </svg>
-                waka-personal
-              </a>
-              <span className="bg-border h-3 w-px" />
-              <span>
-                {rangeStats?.activeDays ?? 0}/{rangeStats?.totalDays ?? 0} active days in range
+                <span className="bg-border h-3 w-px" />
+                <span>
+                  {rangeStats?.activeDays ?? 0}/{rangeStats?.totalDays ?? 0} active days in range
+                </span>
+              </div>
+              <span className="text-foreground/25 text-[10px] tracking-widest uppercase">
+                WakaTime-compatible · self-hosted
               </span>
             </div>
-            <span className="text-foreground/25 text-[10px] tracking-widest uppercase">
-              WakaTime-compatible · self-hosted
-            </span>
-          </div>
-        </footer>
+          </footer>
         </div>
       </div>
 
       <style>{`
-        .dashboard-shell {
-          position: relative;
-        }
         .dashboard-grid {
           background-image:
             linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px),

@@ -1,13 +1,16 @@
 import { MoonStar, SunMedium } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useTheme } from '@/stores/theme'
 
 export default function ThemeToggle() {
   const { isDark, toggle } = useTheme()
 
   return (
-    <button
+    <Button
       type="button"
-      className="border-border bg-background text-foreground hover:bg-foreground hover:text-background inline-flex items-center gap-2 border px-3 py-2 text-xs font-semibold tracking-[0.3em] uppercase transition"
+      variant="outline"
+      size="sm"
+      className="gap-2 px-3 font-semibold tracking-[0.3em] uppercase"
       onClick={toggle}
       aria-label="Toggle theme"
     >
@@ -22,6 +25,6 @@ export default function ThemeToggle() {
           <span>Dark</span>
         </>
       )}
-    </button>
+    </Button>
   )
 }

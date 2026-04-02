@@ -1,51 +1,17 @@
 import { useMemo } from 'react'
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from 'recharts'
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-} from '@/components/ui/chart'
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { normalizeItems, formatShortDuration } from './dashboardUtils.js'
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  const total = payload.find((p) => p.dataKey === '__total')
-  const bars = payload.filter((p) => p.dataKey !== '__total')
-
-  return (
-    <div className="border-border/50 bg-background grid min-w-[8rem] gap-1.5 border px-2.5 py-1.5 text-xs shadow-xl">
-      <p className="font-medium">{label}</p>
-      {total && (
-        <p className="text-foreground/70">
-          Total: <span className="text-foreground font-medium">{formatShortDuration(total.value)}</span>
-        </p>
-      )}
-      {bars.map((p) => (
-        <div key={p.dataKey} className="flex items-center gap-2">
-          <span className="h-2 w-2 shrink-0" style={{ backgroundColor: p.fill || p.color }} />
-          <span className="text-muted-foreground">{p.name}</span>
-          <span className="text-foreground ml-auto font-mono tabular-nums">
-            {formatShortDuration(p.value)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 const LONG_RANGES = new Set(['last year', 'last_year'])
 
-export default function DailyTrendChart({ title = 'Daily Trend', subtitle = '', days = [], range = '' }) {
+export default function DailyTrendChart({
+  title = 'Daily Trend',
+  subtitle = '',
+  days = [],
+  range = '',
+}) {
   const entries = normalizeItems(days)
   const showLine = !LONG_RANGES.has((range || '').toLowerCase()) && entries.length < 355
 
@@ -54,84 +20,102 @@ export default function DailyTrendChart({ title = 'Daily Trend', subtitle = '', 
 
     const allCategories = []
     const seen = new Set()
-    entries.forEach((d) => {
-      d.segments?.forEach((seg) => {
-        if (!seen.has(seg.name)) {
-          seen.add(seg.name)
-          allCategories.push({ name: seg.name, color: seg.color })
+
+    entries.forEach((entry) => {
+      entry.segments?.forEach((segment) => {
+        if (!seen.has(segment.name)) {
+          seen.add(segment.name)
+          allCategories.push({ name: segment.name, color: segment.color })
         }
       })
     })
 
-    const cfg = { __total: { label: 'Total', color: '#e2e8f0' } }
-    allCategories.forEach((cat) => {
-      cfg[cat.name] = { label: cat.name, color: cat.color }
+    const config = { __total: { label: 'Total', color: '#e2e8f0' } }
+    allCategories.forEach((category) => {
+      config[category.name] = { label: category.name, color: category.color }
     })
 
-    const data = entries.map((d) => {
-      const flat = { label: d.label, __total: d.totalSeconds || 0 }
-      d.segments?.forEach((seg) => {
-        flat[seg.name] = seg.seconds || 0
+    const data = entries.map((entry) => {
+      const flat = { label: entry.label, __total: entry.totalSeconds || 0 }
+      entry.segments?.forEach((segment) => {
+        flat[segment.name] = segment.seconds || 0
       })
       return flat
     })
 
-    return { chartData: data, chartConfig: cfg, categoryKeys: allCategories }
+    return { chartData: data, chartConfig: config, categoryKeys: allCategories }
   }, [entries])
 
   return (
-    <section className="border-border bg-background/70 border p-5 backdrop-blur-sm">
-      <div className="mb-4">
-        <p className="text-foreground/55 text-[10px] font-semibold tracking-[0.35em] uppercase">
+    <Card className="border-border/80 bg-background/75 shadow-none backdrop-blur-sm">
+      <CardHeader className="p-5">
+        <CardTitle className="text-foreground/55 text-[10px] font-semibold tracking-[0.35em] uppercase">
           {title}
-        </p>
-        {subtitle && <p className="text-foreground/65 mt-2 text-sm">{subtitle}</p>}
-      </div>
+        </CardTitle>
+        {subtitle && (
+          <CardDescription className="text-foreground/65 mt-2">{subtitle}</CardDescription>
+        )}
+      </CardHeader>
 
-      {entries.length === 0 ? (
-        <div className="border-border text-foreground/55 border border-dashed p-8 text-sm">
-          No activity in this range.
-        </div>
-      ) : (
-        <ChartContainer config={chartConfig} className="h-[290px] w-full">
-          <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.08} />
-            <XAxis
-              dataKey="label"
-              tickLine={false}
-              axisLine={false}
-              tick={{ fontSize: 11, opacity: 0.65 }}
-            />
-            <YAxis
-              tickLine={false}
-              axisLine={false}
-              tick={{ fontSize: 10, opacity: 0.5 }}
-              tickFormatter={(v) => formatShortDuration(v)}
-              width={48}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            {categoryKeys.map((cat) => (
-              <Bar
-                key={cat.name}
-                dataKey={cat.name}
-                stackId="a"
-                fill={cat.color}
-                radius={0}
-                maxBarSize={36}
+      <CardContent className="px-5 pb-5">
+        {entries.length === 0 ? (
+          <div className="border-border text-foreground/55 border border-dashed p-8 text-sm">
+            No activity in this range.
+          </div>
+        ) : (
+          <ChartContainer config={chartConfig} className="h-[290px] w-full">
+            <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+              <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.08} />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 11, opacity: 0.65 }}
               />
-            ))}
-            {showLine && (
-              <Line
-                dataKey="__total"
-                type="linear"
-                stroke="#e2e8f0"
-                strokeWidth={2}
-                dot={{ fill: '#f8fafc', r: 3, strokeWidth: 0 }}
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 10, opacity: 0.5 }}
+                tickFormatter={(seconds) => formatShortDuration(seconds)}
+                width={48}
               />
-            )}
-          </ComposedChart>
-        </ChartContainer>
-      )}
-    </section>
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    formatter={(value, name) => (
+                      <>
+                        <span className="text-muted-foreground">{name}</span>
+                        <span className="text-foreground ml-auto font-mono tabular-nums">
+                          {formatShortDuration(value)}
+                        </span>
+                      </>
+                    )}
+                  />
+                }
+              />
+              {categoryKeys.map((category) => (
+                <Bar
+                  key={category.name}
+                  dataKey={category.name}
+                  stackId="a"
+                  fill={category.color}
+                  radius={0}
+                  maxBarSize={36}
+                />
+              ))}
+              {showLine && (
+                <Line
+                  dataKey="__total"
+                  type="linear"
+                  stroke="#e2e8f0"
+                  strokeWidth={2}
+                  dot={{ fill: '#f8fafc', r: 3, strokeWidth: 0 }}
+                />
+              )}
+            </ComposedChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
   )
 }
