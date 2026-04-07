@@ -4,6 +4,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { normalizeItems, formatShortDuration } from './dashboardUtils.js'
 
+const buildTrendTooltip = (chartConfig) =>
+  ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null
+    const items = payload
+      .filter((item) => item.type !== 'none' && Number(item.value) > 0)
+      .sort((a, b) => (a.dataKey === '__total' ? 1 : b.dataKey === '__total' ? -1 : 0))
+    if (!items.length) return null
+    return (
+      <ChartTooltipContent
+        active={active}
+        payload={items}
+        label={label}
+        formatter={(value, name) => (
+          <>
+            <span className="text-muted-foreground">{chartConfig[name]?.label ?? name}</span>
+            <span className="text-foreground ml-auto font-mono tabular-nums">
+              {formatShortDuration(value)}
+            </span>
+          </>
+        )}
+      />
+    )
+  }
+
 const LONG_RANGES = new Set(['last year', 'last_year'])
 
 export default function DailyTrendChart({
@@ -79,20 +103,7 @@ export default function DailyTrendChart({
                 tickFormatter={(seconds) => formatShortDuration(seconds)}
                 width={48}
               />
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(value, name) => (
-                      <>
-                        <span className="text-muted-foreground">{name}</span>
-                        <span className="text-foreground ml-auto font-mono tabular-nums">
-                          {formatShortDuration(value)}
-                        </span>
-                      </>
-                    )}
-                  />
-                }
-              />
+              <ChartTooltip content={buildTrendTooltip(chartConfig)} />
               {categoryKeys.map((category) => (
                 <Bar
                   key={category.name}

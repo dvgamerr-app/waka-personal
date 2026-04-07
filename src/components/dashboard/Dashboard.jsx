@@ -15,6 +15,7 @@ import {
   buildTimelineRows,
   buildTrendSeries,
   computeRangeStats,
+  formatCount,
   formatDayLabel,
   normalizeItems,
   palette,
@@ -333,7 +334,7 @@ function DashboardContent({ data, config }) {
             />
             <StatCard
               label="AI vs Human"
-              value={`${(rangeStats?.aiAdditions ?? stats.ai_additions ?? 0).toLocaleString()} / ${(rangeStats?.humanAdditions ?? stats.human_additions ?? 0).toLocaleString()}`}
+              value={`${formatCount(rangeStats?.aiAdditions ?? stats.ai_additions ?? 0)} / ${formatCount(rangeStats?.humanAdditions ?? stats.human_additions ?? 0)}`}
               note={`AI / human additions over ${rangeLabel}`}
               accent="#f59e0b"
             />
@@ -342,7 +343,7 @@ function DashboardContent({ data, config }) {
           <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
             <DailyTrendChart
               title="Daily Activity"
-              subtitle="Stacked by top categories with total activity overlaid."
+              subtitle="Stacked by top projects with total activity overlaid."
               days={trendSeries}
               range={selectedRange}
             />

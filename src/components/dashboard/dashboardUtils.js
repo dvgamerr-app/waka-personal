@@ -23,6 +23,12 @@ export const formatShortDuration = (seconds) => {
 
 export const formatPercent = (value) => `${Math.round(Number(value) || 0)}%`
 
+export const formatCount = (value) => {
+  const n = Math.round(Number(value) || 0)
+  if (n >= 1000) return `${Math.round(n / 1000)}K`
+  return String(n)
+}
+
 export const formatDayLabel = (value) => {
   if (!value) return ''
   const date = new Date(`${value}T00:00:00`)
@@ -39,33 +45,33 @@ export const enrichItemsWithColor = (items, limit = 6) =>
 
 export const buildTrendSeries = (summaries) => {
   const days = normalizeItems(summaries)
-  const topCategories = []
-  const totalsByCategory = new Map()
+  const topProjects = []
+  const totalsByProject = new Map()
 
   days.forEach((day) => {
-    normalizeItems(day.categories).forEach((item) => {
-      const next = (totalsByCategory.get(item.name) || 0) + (Number(item.total_seconds) || 0)
-      totalsByCategory.set(item.name, next)
+    normalizeItems(day.projects).forEach((item) => {
+      const next = (totalsByProject.get(item.name) || 0) + (Number(item.total_seconds) || 0)
+      totalsByProject.set(item.name, next)
     })
   })
 
-  Array.from(totalsByCategory.entries())
+  Array.from(totalsByProject.entries())
     .sort((left, right) => right[1] - left[1])
-    .slice(0, 4)
+    .slice(0, 5)
     .forEach(([name], index) => {
-      topCategories.push({ name, color: palette[index % palette.length] })
+      topProjects.push({ name, color: palette[index % palette.length] })
     })
 
   return days.map((day) => {
-    const categoryMap = new Map()
-    normalizeItems(day.categories).forEach((item) => {
-      categoryMap.set(item.name, Number(item.total_seconds) || 0)
+    const projectMap = new Map()
+    normalizeItems(day.projects).forEach((item) => {
+      projectMap.set(item.name, Number(item.total_seconds) || 0)
     })
 
-    const segments = topCategories.map((category) => ({
-      name: category.name,
-      color: category.color,
-      seconds: categoryMap.get(category.name) || 0,
+    const segments = topProjects.map((project) => ({
+      name: project.name,
+      color: project.color,
+      seconds: projectMap.get(project.name) || 0,
     }))
 
     const usedSeconds = segments.reduce((sum, segment) => sum + segment.seconds, 0)

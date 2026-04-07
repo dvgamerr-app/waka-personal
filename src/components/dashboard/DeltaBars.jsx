@@ -91,7 +91,7 @@ export default function DeltaBars({ title = 'AI vs Human', subtitle = '', series
                           {CHART_CONFIG[name]?.label || name}
                         </span>
                         <span className="text-foreground ml-auto font-mono tabular-nums">
-                          {Math.abs(value).toLocaleString()}
+                          {Math.abs(value) >= 1000 ? `${Math.round(Math.abs(value) / 1000)}K` : String(Math.abs(value))}
                         </span>
                       </>
                     )}
