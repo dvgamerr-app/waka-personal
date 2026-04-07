@@ -11,6 +11,8 @@ import (
 	"waka-personal/internal/store"
 )
 
+const defaultTimeoutMinutes = 15
+
 type QueryService struct {
 	store   *store.Store
 	profile *ProfileService
@@ -31,10 +33,7 @@ func (s *QueryService) HeartbeatsForDate(ctx context.Context, day time.Time) (he
 		return nil, time.Time{}, time.Time{}, "", fmt.Errorf("load timezone %q: %w", profile.Timezone, err)
 	}
 
-	localDay := day.In(loc)
-	start = time.Date(localDay.Year(), localDay.Month(), localDay.Day(), 0, 0, 0, 0, loc)
-	end = start.Add(24 * time.Hour)
-
+	start, end = dayRangeInLocation(day, loc)
 	heartbeats, err = s.store.ListHeartbeatsByRange(ctx, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, time.Time{}, time.Time{}, "", err
@@ -53,9 +52,7 @@ func (s *QueryService) DeleteHeartbeatsForDate(ctx context.Context, day time.Tim
 		return 0, fmt.Errorf("load timezone %q: %w", profile.Timezone, err)
 	}
 
-	localDay := day.In(loc)
-	start := time.Date(localDay.Year(), localDay.Month(), localDay.Day(), 0, 0, 0, 0, loc)
-	end := start.Add(24 * time.Hour)
+	start, end := dayRangeInLocation(day, loc)
 	return s.store.DeleteHeartbeats(ctx, start.UTC(), end.UTC(), ids)
 }
 
@@ -88,7 +85,7 @@ func (s *QueryService) FileExperts(ctx context.Context, entity, project string, 
 		return nil, err
 	}
 
-	timeout := 15
+	timeout := defaultTimeoutMinutes
 	if profile.TimeoutMinutes != nil && *profile.TimeoutMinutes > 0 {
 		timeout = *profile.TimeoutMinutes
 	}
@@ -236,30 +233,30 @@ func humanizeDuration(totalSeconds float64) string {
 	return strings.Join(parts, " ")
 }
 
+var categoryDisplayNames = map[string]string{
+	"ai coding":      "AI Coding",
+	"code reviewing": "Code Reviewing",
+	"writing docs":   "Writing Docs",
+	"running tests":  "Running Tests",
+	"writing tests":  "Writing Tests",
+	"manual testing": "Manual Testing",
+}
+
 func displayCategoryName(category string) string {
-	switch strings.TrimSpace(strings.ToLower(category)) {
-	case "ai coding":
-		return "AI Coding"
-	case "code reviewing":
-		return "Code Reviewing"
-	case "writing docs":
-		return "Writing Docs"
-	case "running tests":
-		return "Running Tests"
-	case "writing tests":
-		return "Writing Tests"
-	case "manual testing":
-		return "Manual Testing"
-	default:
-		words := strings.Fields(strings.TrimSpace(strings.ToLower(category)))
-		for i, word := range words {
+	normalized := strings.TrimSpace(strings.ToLower(category))
+	if name, ok := categoryDisplayNames[normalized]; ok {
+		return name
+	}
+	words := strings.Fields(normalized)
+	for i, word := range words {
+		if len(word) > 0 {
 			words[i] = strings.ToUpper(word[:1]) + word[1:]
 		}
-		if len(words) == 0 {
-			return "Coding"
-		}
-		return strings.Join(words, " ")
 	}
+	if len(words) == 0 {
+		return "Coding"
+	}
+	return strings.Join(words, " ")
 }
 
 func effectiveUserName(profile *domain.ProfileSnapshot) string {
@@ -285,4 +282,11 @@ func storeDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func dayRangeInLocation(day time.Time, loc *time.Location) (start, end time.Time) {
+	local := day.In(loc)
+	start = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	end = start.Add(24 * time.Hour)
+	return
 }

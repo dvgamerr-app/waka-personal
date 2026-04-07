@@ -230,7 +230,7 @@ func (s *QueryService) resolveQuerySettings(ctx context.Context, timezone string
 		return querySettings{}, fmt.Errorf("load timezone %q: %w", effectiveTimezone, err)
 	}
 
-	effectiveTimeout := 15
+	effectiveTimeout := defaultTimeoutMinutes
 	if profile.TimeoutMinutes != nil && *profile.TimeoutMinutes > 0 {
 		effectiveTimeout = *profile.TimeoutMinutes
 	}
