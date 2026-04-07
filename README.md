@@ -1,78 +1,88 @@
 # Waka Personal
 
-GoFiber API server with PostgreSQL storage that can act as a single-user WakaTime-compatible backend for `vscode-wakatime`.
+Waka Personal is a self-hosted, single-user WakaTime-compatible backend with a built-in dashboard.
+It lets you keep using WakaTime clients and plugins, store the data in PostgreSQL, and browse your own coding activity from a local web UI.
 
-## Features
+Good fit if you want to:
 
-- WakaTime-compatible endpoints for:
-  - `POST /api/v1/users/current/heartbeats`
-  - `POST /api/v1/users/current/heartbeats.bulk`
-  - `GET /api/v1/users/current/heartbeats?date=YYYY-MM-DD`
-  - `DELETE /api/v1/users/current/heartbeats.bulk`
-  - `GET /api/v1/users/current/statusbar/today`
-  - `POST /api/v1/users/current/file_experts`
-- PostgreSQL persistence
-- Single-user API key auth
-- Large backup import CLI using the DuckDB Go client
+- keep your coding history in your own database
+- point WakaTime-compatible plugins at your own API
+- run a personal dashboard on localhost or your own server
+- import old backup exports and keep everything in one place
 
-## Run Locally
+## Highlights
+
+- WakaTime-compatible ingest and query endpoints for heartbeats, durations, summaries, stats, status bar, and file experts
+- Built-in Astro + React dashboard, served by the Go app from `dist/`
+- PostgreSQL storage with `goose` migrations
+- Backup importer for `.json` and `.json.gz` exports
+- Optional API key auth for a single-user setup
+- Health endpoints, rate limiting, and security headers out of the box
+
+## Stack
+
+- Backend: Go 1.26, Fiber v2, pgx/v5, goose, zerolog
+- Frontend: Astro, React, Tailwind CSS
+- Database: PostgreSQL
+
+## Project Layout
+
+```text
+cmd/             app entrypoints
+internal/http/   Fiber handlers and transport concerns
+internal/service/ business logic
+internal/store/  PostgreSQL access and migrations
+src/             Astro + React dashboard
+db/migrations/   goose migration files
+```
+
+## Quick Start
 
 1. Copy `.env.example` to `.env` and adjust values.
-2. Start PostgreSQL with:
+2. Start PostgreSQL:
 
 ```shell
 docker compose up -d postgres
 ```
 
-3. Run the API:
+Set `DATABASE_URL` in `.env` to match the Docker database name if you use the bundled Compose file:
+
+```env
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/dvgamerr?sslmode=disable
+```
+
+3. Install frontend dependencies and build the dashboard:
+
+```shell
+bun install
+bun run build:dist
+```
+
+4. Start the API:
 
 ```shell
 go run ./cmd
 ```
 
-The API and importer automatically run pending `goose` migrations on startup.
+The API applies pending `goose` migrations on startup.
+If `dist/index.html` exists, the Go server also serves the dashboard from the same origin.
 
-## Static Frontend Build
+## What The API Supports
 
-The Astro frontend now builds as a static site. Dashboard data is fetched by the React island in the browser instead of during Astro SSR.
+- `POST /api/v1/users/current/heartbeats`
+- `POST /api/v1/users/current/heartbeats.bulk`
+- `GET /api/v1/users/current/heartbeats?date=YYYY-MM-DD`
+- `DELETE /api/v1/users/current/heartbeats.bulk`
+- `GET /api/v1/users/current/durations`
+- `GET /api/v1/users/current/summaries`
+- `GET /api/v1/users/current/stats`
+- `GET /api/v1/users/current/statusbar/today`
+- `POST /api/v1/users/current/file_experts`
+- `GET /api/v1/users/current/dashboard`
 
-Build the frontend with:
+## Client Config
 
-```shell
-bun run build:dist
-```
-
-The Go server serves the built website directly from `dist/` by default. Override that path with `WEB_DIST_DIR` if you want to point at a different build output.
-
-If the frontend and Go API share the same origin, leave `PUBLIC_API_BASE` empty and keep using the `/api` path.
-
-If you serve the static frontend from a different origin, set:
-
-- `PUBLIC_API_BASE` to the API origin, for example `http://localhost:8080`
-- `PUBLIC_APP_TIMEZONE` to the timezone the dashboard should request
-- `PUBLIC_APP_API_KEY` to the same value as `APP_API_KEY` when API auth is enabled
-
-## Migration Commands
-
-Run migrations explicitly with:
-
-```shell
-go run ./cmd/migrate up
-```
-
-Common commands:
-
-- `go run ./cmd/migrate status`
-- `go run ./cmd/migrate down`
-- `go run ./cmd/migrate create add_new_table sql`
-- `go run ./cmd/migrate fix`
-- `go run ./cmd/migrate validate`
-
-Config comes from `.env`, including `DATABASE_URL`, `MIGRATION_DIR`, and `GOOSE_TABLE`.
-
-## Point VS Code to This API
-
-Set these in VS Code settings:
+### VS Code example
 
 ```json
 {
@@ -81,17 +91,46 @@ Set these in VS Code settings:
 }
 ```
 
-The extension normalizes the base URL, so use the API root and not a specific heartbeat path.
+### `.wakatime.cfg` example for this project
 
-This server only compares strings for auth, so `APP_API_KEY` only needs to match whatever the client sends.
+```ini
+[settings]
+api_url = http://localhost:8080/api/v1
+api_key = <APP_API_KEY>
+debug = false
+```
 
-If a specific client validates API key format on its own, choose a key value that client accepts. That is a client constraint, not a server requirement.
+### Multi-backend `.wakatime.cfg` example
+
+This is useful when you want to keep a default WakaTime setup, but override some traffic to Wakapi or your local Waka Personal instance:
+
+```ini
+[settings]
+api_url = https://api.wakatime.com/api/v1
+api_key = <api_key_waka>
+
+debug = false
+[api_urls]
+.* = https://wakapi.dev/api|<api_key_wakapi>
+.* = http://localhost:8080/api/v1|<APP_API_KEY>
+```
+
+Use the same value for `APP_API_KEY` in `.env` and in your client config.
+WakaTime plugins send the API key as the Basic-auth username, and this server only checks that the received value matches `APP_API_KEY`.
+
+## Frontend Environment
+
+If the frontend and backend share the same origin, leave `PUBLIC_API_BASE` empty.
+
+Use these variables when building the dashboard:
+
+- `PUBLIC_API_BASE` for the API origin when frontend and backend are on different origins
+- `PUBLIC_APP_TIMEZONE` for dashboard queries
+- `PUBLIC_APP_API_KEY` to match backend `APP_API_KEY` when auth is enabled
 
 ## Import Backup JSON
 
-Supports `.json` and `.json.gz` backup files with top-level `user`, `range`, and `days[].heartbeats[]`.
-
-On Windows, building/running the importer from source with the DuckDB Go client requires `CGO_ENABLED=1` plus a GCC toolchain such as MSYS2 UCRT64.
+Supports backup files in `.json` and `.json.gz` format with top-level `user`, `range`, and `days[].heartbeats[]`.
 
 ```shell
 go run ./cmd/importer --file E:\path\to\backup.json
@@ -102,18 +141,33 @@ Optional flags:
 - `--format backup-json`
 - `--dry-run`
 
-The importer:
+On Windows, building or running the DuckDB-backed importer from source requires `CGO_ENABLED=1` and a GCC toolchain such as MSYS2 UCRT64.
 
-1. Reads backup metadata
-2. Updates the singleton `import_profile`
-3. Creates a new `import_snapshot` record
-4. Uses the DuckDB Go client to flatten large JSON into CSV
-5. Bulk loads rows into PostgreSQL
-
-## Verification
-
-Run tests:
+## Migration Commands
 
 ```shell
-go test ./...
+go run ./cmd/migrate up
+go run ./cmd/migrate status
+go run ./cmd/migrate down
+go run ./cmd/migrate create add_new_table sql
+go run ./cmd/migrate fix
+go run ./cmd/migrate validate
 ```
+
+Migration config comes from `.env`, including `DATABASE_URL`, `MIGRATION_DIR`, and `GOOSE_TABLE`.
+
+## Development
+
+```shell
+go run ./cmd
+go run ./cmd/migrate up
+go run ./cmd/importer --file <path-to-backup.json>
+go test ./...
+bun run build:dist
+```
+
+## Notes
+
+- Auth is bypassed when `APP_API_KEY` is empty, so set it in production.
+- The default config database name is `waka_personal`, but `docker-compose.yml` uses `dvgamerr`.
+- When changing heartbeat persistence or import behavior, check both the live ingest path and the importer path.
