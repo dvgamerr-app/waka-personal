@@ -1,0 +1,124 @@
+name: build-containers
+
+on:
+  push:
+    branches: ['main']
+    tags:
+      - 'v*'
+  pull_request:
+    branches: ['main']
+
+jobs:
+  api:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    outputs:
+      docker_image: ${{ steps.prepare.outputs.docker_image }}
+      version: ${{ steps.prepare.outputs.version }}
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_OWNER: dvgamerr-app
+      IMAGE_FILE: Dockerfile
+      IMAGE_NAME: waka-personal
+      PLATFORMS: linux/amd64,linux/arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare 🔰
+        id: prepare
+        run: |
+          echo "docker_image=${{env.REGISTRY}}/${{env.IMAGE_OWNER}}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
+
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          [ "$VERSION" == "main" ] && VERSION=latest
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          echo "buildx_args=--platform $PLATFORMS \
+            --build-arg VERSION=${VERSION} \
+            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --tag ${{env.REGISTRY}}/${{env.IMAGE_OWNER}}/$IMAGE_NAME:$VERSION --file $IMAGE_FILE ." >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx 📐
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ env.REGISTRY }} 🔍
+        if: success() && !contains(github.event_name, 'pull_request')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.IMAGE_OWNER }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker Push 📌
+        run: docker buildx build --output "type=image,push=${{ !contains(github.event_name, 'pull_request') }}" ${{ steps.prepare.outputs.buildx_args }}
+
+  deploy:
+    runs-on: self-hosted
+    needs: [api]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+      packages: read
+    env:
+      CONTAINER_NAME: waka-personal
+      IMAGE_OWNER: dvgamerr-app
+      DEPLOY_PLATFORM: linux/arm64
+
+    steps:
+      - name: Create GitHub Release 🎉
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## What's Changed
+
+            🐳 **Docker Image:**
+            - `${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}`
+
+            Built from commit: ${{ github.sha }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull new image
+        run: |
+          container stop ${{ env.CONTAINER_NAME }} || true
+          container delete ${{ env.CONTAINER_NAME }} || true
+          container image delete ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }} || true
+          container image pull --platform ${{ env.DEPLOY_PLATFORM }} ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}
+
+      - name: Start new container
+        run: |
+          container run -d \
+            --platform ${{ env.DEPLOY_PLATFORM }} \
+            --name ${{ env.CONTAINER_NAME }} \
+            -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
+            -e APP_API_KEY=${{ secrets.APP_API_KEY }} \
+            -e APP_TIMEZONE=${{ vars.APP_TIMEZONE }} \
+            -p 3002:8080 \
+            ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}
+
+      - name: Alert
+        if: success()
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"\`${{ env.CONTAINER_NAME }}\` successfully rolled out image \`${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}\`\"}"
+
+      - name: Fail Alert
+        continue-on-error: true
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"Rollout \`${{ env.CONTAINER_NAME }}\` <:fai:1065521737896300604><:led:1065521734096257024>.\n Check: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>\"}"
