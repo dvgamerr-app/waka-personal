@@ -44,3 +44,35 @@ func TestNormalizeHeartbeat_UsesAliases(t *testing.T) {
 		t.Fatalf("expected 2 dependencies, got %d", len(record.Dependencies))
 	}
 }
+
+func TestNormalizeHeartbeat_AITelemetry(t *testing.T) {
+	payloads, err := ParseHeartbeatBody([]byte(`{
+		"entity": "/tmp/main.go",
+		"time": 1710000000,
+		"ai_session": "sess-123",
+		"ai_subscription_plan": "pro",
+		"ai_input_tokens": 1200,
+		"ai_output_tokens": 800,
+		"ai_prompt_length": 64
+	}`))
+	if err != nil {
+		t.Fatalf("ParseHeartbeatBody returned error: %v", err)
+	}
+
+	record, err := NormalizeHeartbeat(&payloads[0], "machine-a", nil)
+	if err != nil {
+		t.Fatalf("NormalizeHeartbeat returned error: %v", err)
+	}
+	if record.AISession != "sess-123" || record.AISubscriptionPlan != "pro" {
+		t.Fatalf("unexpected ai strings: %q %q", record.AISession, record.AISubscriptionPlan)
+	}
+	if record.AIInputTokens == nil || *record.AIInputTokens != 1200 {
+		t.Fatalf("expected ai_input_tokens 1200, got %#v", record.AIInputTokens)
+	}
+	if record.AIOutputTokens == nil || *record.AIOutputTokens != 800 {
+		t.Fatalf("expected ai_output_tokens 800, got %#v", record.AIOutputTokens)
+	}
+	if record.AIPromptLength == nil || *record.AIPromptLength != 64 {
+		t.Fatalf("expected ai_prompt_length 64, got %#v", record.AIPromptLength)
+	}
+}

@@ -29,13 +29,15 @@ const upsertHeartbeatQuery = `
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
 			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
 			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload, updated_at
+			origin_payload, ai_session, ai_subscription_plan, ai_input_tokens, ai_output_tokens,
+			ai_prompt_length, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15,
 			$16, $17, $18, $19, $20, $21,
 			$22, $23, $24, $25, $26,
-			$27, NOW()
+			$27, $28, $29, $30, $31,
+			$32, NOW()
 		)
 		ON CONFLICT (dedupe_hash) DO UPDATE
 		SET source_heartbeat_id = EXCLUDED.source_heartbeat_id,
@@ -63,13 +65,19 @@ const upsertHeartbeatQuery = `
 			dependencies = EXCLUDED.dependencies,
 			import_batch_id = EXCLUDED.import_batch_id,
 			origin_payload = EXCLUDED.origin_payload,
+			ai_session = EXCLUDED.ai_session,
+			ai_subscription_plan = EXCLUDED.ai_subscription_plan,
+			ai_input_tokens = EXCLUDED.ai_input_tokens,
+			ai_output_tokens = EXCLUDED.ai_output_tokens,
+			ai_prompt_length = EXCLUDED.ai_prompt_length,
 			updated_at = NOW()
 		RETURNING
 			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
 			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
 			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload
+			origin_payload, ai_session, ai_subscription_plan, ai_input_tokens, ai_output_tokens,
+			ai_prompt_length
 	`
 
 func New(db *pgxpool.Pool) *Store {
@@ -142,6 +150,8 @@ func (s *Store) upsertHeartbeatRecord(ctx context.Context, record *domain.Heartb
 type heartbeatUpsertResult struct {
 	scanned             domain.HeartbeatRecord
 	sourceHeartbeatID   *string
+	aiSession           *string
+	aiSubscriptionPlan  *string
 	project             *string
 	branch              *string
 	language            *string
@@ -186,6 +196,11 @@ func (s *Store) scanUpsertedHeartbeat(ctx context.Context, record *domain.Heartb
 		dependencies,
 		importBatchID,
 		record.OriginPayload,
+		nullableString(record.AISession),
+		nullableString(record.AISubscriptionPlan),
+		record.AIInputTokens,
+		record.AIOutputTokens,
+		record.AIPromptLength,
 	).Scan(
 		&result.scanned.ID,
 		&result.sourceHeartbeatID,
@@ -214,6 +229,11 @@ func (s *Store) scanUpsertedHeartbeat(ctx context.Context, record *domain.Heartb
 		&result.deps,
 		&result.importBatchID,
 		&result.scanned.OriginPayload,
+		&result.aiSession,
+		&result.aiSubscriptionPlan,
+		&result.scanned.AIInputTokens,
+		&result.scanned.AIOutputTokens,
+		&result.scanned.AIPromptLength,
 	)
 	if err != nil {
 		return heartbeatUpsertResult{}, fmt.Errorf("upsert heartbeat %s: %w", record.Entity, err)
@@ -223,6 +243,8 @@ func (s *Store) scanUpsertedHeartbeat(ctx context.Context, record *domain.Heartb
 
 func hydrateUpsertedHeartbeat(result *heartbeatUpsertResult) error {
 	result.scanned.SourceHeartbeatID = derefString(result.sourceHeartbeatID)
+	result.scanned.AISession = derefString(result.aiSession)
+	result.scanned.AISubscriptionPlan = derefString(result.aiSubscriptionPlan)
 	result.scanned.Project = derefString(result.project)
 	result.scanned.Branch = derefString(result.branch)
 	result.scanned.Language = derefString(result.language)
@@ -262,7 +284,8 @@ func (s *Store) ListHeartbeatsByRange(ctx context.Context, start, end time.Time)
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
 			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
 			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload
+			origin_payload, ai_session, ai_subscription_plan, ai_input_tokens, ai_output_tokens,
+			ai_prompt_length
 		FROM heartbeats
 		WHERE time >= $1 AND time < $2
 		ORDER BY time ASC, entity ASC
@@ -295,7 +318,8 @@ func (s *Store) ListHeartbeatsForEntity(ctx context.Context, entity, project str
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
 			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
 			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload
+			origin_payload, ai_session, ai_subscription_plan, ai_input_tokens, ai_output_tokens,
+			ai_prompt_length
 		FROM heartbeats
 		WHERE entity = $1
 	`)
@@ -599,7 +623,12 @@ func createTempImportTable(ctx context.Context, tx pgx.Tx) error {
 			source_user_agent_id TEXT,
 			dependencies JSONB NOT NULL,
 			import_batch_id TEXT,
-			origin_payload JSONB NOT NULL
+			origin_payload JSONB NOT NULL,
+			ai_session TEXT,
+			ai_subscription_plan TEXT,
+			ai_input_tokens BIGINT,
+			ai_output_tokens BIGINT,
+			ai_prompt_length INTEGER
 		) ON COMMIT DROP
 	`)
 	if err != nil {
@@ -631,6 +660,8 @@ func copyHeartbeatCSVIntoTempTable(ctx context.Context, tx pgx.Tx, csvPath, batc
 			"lineno", "cursorpos", "lines", "is_write", "is_unsaved_entity", "ai_line_changes",
 			"human_line_changes", "machine_name", "source_machine_name_id", "plugin",
 			"source_user_agent_id", "dependencies", "import_batch_id", "origin_payload",
+			"ai_session", "ai_subscription_plan", "ai_input_tokens", "ai_output_tokens",
+			"ai_prompt_length",
 		},
 		source,
 	); err != nil {
@@ -654,7 +685,8 @@ func insertTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
 			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
 			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload, created_at, updated_at
+			origin_payload, ai_session, ai_subscription_plan, ai_input_tokens, ai_output_tokens,
+			ai_prompt_length, created_at, updated_at
 		)
 		SELECT
 			id, NULLIF(source_heartbeat_id, ''), dedupe_hash, time, source_created_at, entity, type, category,
@@ -662,7 +694,9 @@ func insertTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
 			NULLIF(project_folder, ''), lineno, cursorpos, lines, is_write, is_unsaved_entity,
 			ai_line_changes, human_line_changes, NULLIF(machine_name, ''),
 			NULLIF(source_machine_name_id, ''), NULLIF(plugin, ''), NULLIF(source_user_agent_id, ''),
-			dependencies, import_batch_id, origin_payload, NOW(), NOW()
+			dependencies, import_batch_id, origin_payload, NULLIF(ai_session, ''),
+			NULLIF(ai_subscription_plan, ''), ai_input_tokens, ai_output_tokens, ai_prompt_length,
+			NOW(), NOW()
 		FROM import_heartbeats_tmp
 		ON CONFLICT (dedupe_hash) DO NOTHING
 	`)
@@ -688,6 +722,7 @@ func scanHeartbeats(rows pgx.Rows) ([]domain.HeartbeatRecord, error) {
 		var record domain.HeartbeatRecord
 		var sourceHeartbeatID *string
 		var project, branch, language, projectFolder, machineName, sourceMachineNameID, plugin, sourceUserAgentID *string
+		var aiSession, aiSubscriptionPlan *string
 		var dependencies []byte
 		var importBatchID *string
 		if err := rows.Scan(
@@ -718,11 +753,18 @@ func scanHeartbeats(rows pgx.Rows) ([]domain.HeartbeatRecord, error) {
 			&dependencies,
 			&importBatchID,
 			&record.OriginPayload,
+			&aiSession,
+			&aiSubscriptionPlan,
+			&record.AIInputTokens,
+			&record.AIOutputTokens,
+			&record.AIPromptLength,
 		); err != nil {
 			return nil, fmt.Errorf("scan heartbeat row: %w", err)
 		}
 
 		record.SourceHeartbeatID = derefString(sourceHeartbeatID)
+		record.AISession = derefString(aiSession)
+		record.AISubscriptionPlan = derefString(aiSubscriptionPlan)
 		record.Project = derefString(project)
 		record.Branch = derefString(branch)
 		record.Language = derefString(language)
@@ -768,6 +810,8 @@ func newHeartbeatCSVSource(reader *csv.Reader, batchID string) (*heartbeatCSVSou
 		"cursorpos", "lines", "is_write", "is_unsaved_entity", "ai_line_changes",
 		"human_line_changes", "machine_name", "source_machine_name_id", "plugin",
 		"source_user_agent_id", "dependencies_json", "origin_payload_json",
+		"ai_session", "ai_subscription_plan", "ai_input_tokens", "ai_output_tokens",
+		"ai_prompt_length",
 	}
 	if strings.Join(header, ",") != strings.Join(expected, ",") {
 		return nil, fmt.Errorf("unexpected import csv header: %v", header)
@@ -838,6 +882,11 @@ type parsedHeartbeatCSV struct {
 	Dependencies        []byte
 	OriginPayload       []byte
 	ImportBatchID       string
+	AISession           string
+	AISubscriptionPlan  string
+	AIInputTokens       *int64
+	AIOutputTokens      *int64
+	AIPromptLength      *int
 }
 
 func (p *parsedHeartbeatCSV) Values() []any {
@@ -866,12 +915,17 @@ func (p *parsedHeartbeatCSV) Values() []any {
 		p.Dependencies,
 		p.ImportBatchID,
 		p.OriginPayload,
+		nullableString(p.AISession),
+		nullableString(p.AISubscriptionPlan),
+		p.AIInputTokens,
+		p.AIOutputTokens,
+		p.AIPromptLength,
 	}
 }
 
 func parseHeartbeatCSVRecord(record []string, batchID string) (id, dedupeHash string, parsed *parsedHeartbeatCSV, err error) {
-	if len(record) != 24 {
-		return "", "", nil, fmt.Errorf("expected 24 columns, got %d", len(record))
+	if len(record) != 29 {
+		return "", "", nil, fmt.Errorf("expected 29 columns, got %d", len(record))
 	}
 
 	heartbeatTime, err := parseHeartbeatCSVTime(record[1])
@@ -925,6 +979,11 @@ func parseHeartbeatCSVRecord(record []string, batchID string) (id, dedupeHash st
 		Dependencies:        []byte(defaultIfEmpty(record[22], "[]")),
 		OriginPayload:       []byte(defaultIfEmpty(record[23], "{}")),
 		ImportBatchID:       batchID,
+		AISession:           record[24],
+		AISubscriptionPlan:  record[25],
+		AIInputTokens:       fields.AIInputTokens,
+		AIOutputTokens:      fields.AIOutputTokens,
+		AIPromptLength:      fields.AIPromptLength,
 	}
 
 	return id, dedupeHash, parsed, nil
@@ -938,6 +997,9 @@ type parsedHeartbeatCSVFields struct {
 	Lines            *int
 	AILineChanges    *int
 	HumanLineChanges *int
+	AIInputTokens    *int64
+	AIOutputTokens   *int64
+	AIPromptLength   *int
 	IsWrite          bool
 	IsUnsavedEntity  bool
 }
@@ -982,6 +1044,18 @@ func parseHeartbeatCSVFields(record []string) (parsedHeartbeatCSVFields, error) 
 	if err != nil {
 		return fields, fmt.Errorf("parse human_line_changes: %w", err)
 	}
+	fields.AIInputTokens, err = parseOptionalInt64(record[26])
+	if err != nil {
+		return fields, fmt.Errorf("parse ai_input_tokens: %w", err)
+	}
+	fields.AIOutputTokens, err = parseOptionalInt64(record[27])
+	if err != nil {
+		return fields, fmt.Errorf("parse ai_output_tokens: %w", err)
+	}
+	fields.AIPromptLength, err = parseOptionalInt(record[28])
+	if err != nil {
+		return fields, fmt.Errorf("parse ai_prompt_length: %w", err)
+	}
 	fields.IsWrite, err = parseOptionalBool(record[14], false)
 	if err != nil {
 		return fields, fmt.Errorf("parse is_write: %w", err)
@@ -1013,6 +1087,17 @@ func parseOptionalInt(value string) (*int, error) {
 		return nil, nil
 	}
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func parseOptionalInt64(value string) (*int64, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return nil, err
 	}

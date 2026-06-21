@@ -56,7 +56,23 @@ type recordingQuery struct {
 }
 
 func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) (records []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
-	return nil, day.UTC(), day.Add(24 * time.Hour).UTC(), "UTC", nil
+	aiInputTokens := int64(1200)
+	aiOutputTokens := int64(800)
+	aiPromptLength := 64
+	return []domain.HeartbeatRecord{
+		{
+			ID:                 "hb-1",
+			Entity:             "/tmp/main.go",
+			Type:               "file",
+			Category:           "coding",
+			Time:               time.Unix(1710000000, 0).UTC(),
+			AISession:          "sess-123",
+			AISubscriptionPlan: "pro",
+			AIInputTokens:      &aiInputTokens,
+			AIOutputTokens:     &aiOutputTokens,
+			AIPromptLength:     &aiPromptLength,
+		},
+	}, day.UTC(), day.Add(24 * time.Hour).UTC(), "UTC", nil
 }
 
 func (s stubQuery) DeleteHeartbeatsForDate(ctx context.Context, day time.Time, ids []string) (int64, error) {
@@ -203,6 +219,42 @@ func TestNewApp_HeartbeatsBulkExecutesHandler(t *testing.T) {
 	for _, expected := range []string{`"accepted":1`, `"id":"hb-1"`, `"entity":"/tmp/main.go"`} {
 		if !strings.Contains(string(bodyBytes), expected) {
 			t.Fatalf("expected response body to contain %s, got %s", expected, string(bodyBytes))
+		}
+	}
+}
+
+func TestNewApp_GetHeartbeatsIncludesAITelemetry(t *testing.T) {
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       stubAuth{},
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/users/current/heartbeats?date=2024-03-09", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	body := string(bodyBytes)
+	for _, expected := range []string{
+		`"ai_session":"sess-123"`,
+		`"ai_subscription_plan":"pro"`,
+		`"ai_input_tokens":1200`,
+		`"ai_output_tokens":800`,
+		`"ai_prompt_length":64`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected response body to contain %s, got %s", expected, body)
 		}
 	}
 }

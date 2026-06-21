@@ -6,30 +6,35 @@ import (
 )
 
 type HeartbeatPayload struct {
-	ID               string          `json:"id,omitempty"`
-	Entity           string          `json:"entity"`
-	Type             string          `json:"type,omitempty"`
-	Category         string          `json:"category,omitempty"`
-	Time             float64         `json:"time"`
-	Project          string          `json:"project,omitempty"`
-	AlternateProject string          `json:"alternate_project,omitempty"`
-	Branch           string          `json:"branch,omitempty"`
-	Language         string          `json:"language,omitempty"`
-	Dependencies     json.RawMessage `json:"dependencies,omitempty"`
-	Lines            *int            `json:"lines,omitempty"`
-	LinesInFile      *int            `json:"lines_in_file,omitempty"`
-	Lineno           *int            `json:"lineno,omitempty"`
-	Cursorpos        *int            `json:"cursorpos,omitempty"`
-	IsWrite          bool            `json:"is_write,omitempty"`
-	IsUnsavedEntity  bool            `json:"is_unsaved_entity,omitempty"`
-	ProjectRootCount *int            `json:"project_root_count,omitempty"`
-	ProjectFolder    string          `json:"project_folder,omitempty"`
-	AILineChanges    *int            `json:"ai_line_changes,omitempty"`
-	HumanLineChanges *int            `json:"human_line_changes,omitempty"`
-	Plugin           string          `json:"plugin,omitempty"`
-	MachineNameID    string          `json:"machine_name_id,omitempty"`
-	UserAgentID      string          `json:"user_agent_id,omitempty"`
-	CreatedAt        string          `json:"created_at,omitempty"`
+	ID                 string          `json:"id,omitempty"`
+	Entity             string          `json:"entity"`
+	Type               string          `json:"type,omitempty"`
+	Category           string          `json:"category,omitempty"`
+	Time               float64         `json:"time"`
+	Project            string          `json:"project,omitempty"`
+	AlternateProject   string          `json:"alternate_project,omitempty"`
+	Branch             string          `json:"branch,omitempty"`
+	Language           string          `json:"language,omitempty"`
+	Dependencies       json.RawMessage `json:"dependencies,omitempty"`
+	Lines              *int            `json:"lines,omitempty"`
+	LinesInFile        *int            `json:"lines_in_file,omitempty"`
+	Lineno             *int            `json:"lineno,omitempty"`
+	Cursorpos          *int            `json:"cursorpos,omitempty"`
+	IsWrite            bool            `json:"is_write,omitempty"`
+	IsUnsavedEntity    bool            `json:"is_unsaved_entity,omitempty"`
+	ProjectRootCount   *int            `json:"project_root_count,omitempty"`
+	ProjectFolder      string          `json:"project_folder,omitempty"`
+	AILineChanges      *int            `json:"ai_line_changes,omitempty"`
+	HumanLineChanges   *int            `json:"human_line_changes,omitempty"`
+	AISession          string          `json:"ai_session,omitempty"`
+	AISubscriptionPlan string          `json:"ai_subscription_plan,omitempty"`
+	AIInputTokens      *int64          `json:"ai_input_tokens,omitempty"`
+	AIOutputTokens     *int64          `json:"ai_output_tokens,omitempty"`
+	AIPromptLength     *int            `json:"ai_prompt_length,omitempty"`
+	Plugin             string          `json:"plugin,omitempty"`
+	MachineNameID      string          `json:"machine_name_id,omitempty"`
+	UserAgentID        string          `json:"user_agent_id,omitempty"`
+	CreatedAt          string          `json:"created_at,omitempty"`
 }
 
 type HeartbeatRecord struct {
@@ -53,6 +58,11 @@ type HeartbeatRecord struct {
 	IsUnsavedEntity     bool
 	AILineChanges       *int
 	HumanLineChanges    *int
+	AISession           string
+	AISubscriptionPlan  string
+	AIInputTokens       *int64
+	AIOutputTokens      *int64
+	AIPromptLength      *int
 	MachineName         string
 	SourceMachineNameID string
 	Plugin              string

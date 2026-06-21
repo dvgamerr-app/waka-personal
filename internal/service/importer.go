@@ -337,7 +337,12 @@ COPY (
     COALESCE(json_extract_string(hb_json, '$.plugin'), '') AS plugin,
     COALESCE(json_extract_string(hb_json, '$.user_agent_id'), '') AS source_user_agent_id,
     COALESCE(CAST(json_extract(hb_json, '$.dependencies') AS VARCHAR), '[]') AS dependencies_json,
-    COALESCE(CAST(hb_json AS VARCHAR), '{}') AS origin_payload_json
+    COALESCE(CAST(hb_json AS VARCHAR), '{}') AS origin_payload_json,
+    COALESCE(json_extract_string(hb_json, '$.ai_session'), '') AS ai_session,
+    COALESCE(json_extract_string(hb_json, '$.ai_subscription_plan'), '') AS ai_subscription_plan,
+    COALESCE(json_extract_string(hb_json, '$.ai_input_tokens'), '') AS ai_input_tokens,
+    COALESCE(json_extract_string(hb_json, '$.ai_output_tokens'), '') AS ai_output_tokens,
+    COALESCE(json_extract_string(hb_json, '$.ai_prompt_length'), '') AS ai_prompt_length
   FROM flat
 ) TO '%s' (HEADER, DELIMITER ',');
 `, inputPath, duckDBMaximumObjectSizeBytes, outputPath)
