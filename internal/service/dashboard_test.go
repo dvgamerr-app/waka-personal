@@ -48,6 +48,46 @@ func TestParseSummaryWindowLastYearUsesPreviousCalendarYear(t *testing.T) {
 	}
 }
 
+func TestParseSummaryWindowCalendarYearRange(t *testing.T) {
+	loc := time.FixedZone("UTC+7", 7*60*60)
+	now := time.Date(2026, time.June, 21, 9, 30, 0, 0, loc)
+
+	window, err := parseSummaryWindow(domain.SummaryQueryParams{Range: "2026"}, now, loc)
+	if err != nil {
+		t.Fatalf("parseSummaryWindow returned error: %v", err)
+	}
+
+	expectedStart := time.Date(2026, time.January, 1, 0, 0, 0, 0, loc)
+	expectedEnd := time.Date(2026, time.June, 22, 0, 0, 0, 0, loc)
+
+	if !window.startLocal.Equal(expectedStart) {
+		t.Fatalf("expected start %s, got %s", expectedStart, window.startLocal)
+	}
+	if !window.endLocal.Equal(expectedEnd) {
+		t.Fatalf("expected end %s, got %s", expectedEnd, window.endLocal)
+	}
+}
+
+func TestParseSummaryWindowCalendarMonthRange(t *testing.T) {
+	loc := time.FixedZone("UTC+7", 7*60*60)
+	now := time.Date(2026, time.June, 21, 9, 30, 0, 0, loc)
+
+	window, err := parseSummaryWindow(domain.SummaryQueryParams{Range: "2026-05"}, now, loc)
+	if err != nil {
+		t.Fatalf("parseSummaryWindow returned error: %v", err)
+	}
+
+	expectedStart := time.Date(2026, time.May, 1, 0, 0, 0, 0, loc)
+	expectedEnd := time.Date(2026, time.June, 1, 0, 0, 0, 0, loc)
+
+	if !window.startLocal.Equal(expectedStart) {
+		t.Fatalf("expected start %s, got %s", expectedStart, window.startLocal)
+	}
+	if !window.endLocal.Equal(expectedEnd) {
+		t.Fatalf("expected end %s, got %s", expectedEnd, window.endLocal)
+	}
+}
+
 func TestParseStatsWindowLastYearUsesPreviousCalendarYear(t *testing.T) {
 	loc := time.FixedZone("UTC+7", 7*60*60)
 	now := time.Date(2026, time.April, 2, 9, 30, 0, 0, loc)

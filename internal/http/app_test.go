@@ -50,9 +50,10 @@ type stubQuery struct {
 
 type recordingQuery struct {
 	stubQuery
-	mu           sync.Mutex
-	statsCalls   []domain.StatsQueryParams
-	summaryCalls []domain.SummaryQueryParams
+	mu            sync.Mutex
+	statsCalls    []domain.StatsQueryParams
+	summaryCalls  []domain.SummaryQueryParams
+	durationCalls []domain.DurationQueryParams
 }
 
 func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) (records []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
@@ -143,6 +144,13 @@ func (q *recordingQuery) Stats(ctx context.Context, params domain.StatsQueryPara
 	q.statsCalls = append(q.statsCalls, params)
 	q.mu.Unlock()
 	return q.stubQuery.Stats(ctx, params)
+}
+
+func (q *recordingQuery) Durations(ctx context.Context, params domain.DurationQueryParams) ([]map[string]any, time.Time, time.Time, string, error) {
+	q.mu.Lock()
+	q.durationCalls = append(q.durationCalls, params)
+	q.mu.Unlock()
+	return q.stubQuery.Durations(ctx, params)
 }
 
 func TestNewApp_RejectsUnauthorizedRequests(t *testing.T) {
@@ -288,6 +296,8 @@ func TestNewApp_ServesWebsiteFromDist(t *testing.T) {
 	app := apihttp.NewApp(&config.Config{
 		CORSAllowOrigins: []string{"*"},
 		WebsiteDistDir:   distDir,
+		AppAPIKey:        "runtime-key",
+		AppTimezone:      "Asia/Bangkok",
 	}, &apihttp.Checker{}, apihttp.Services{
 		Auth:       stubAuth{},
 		Heartbeats: stubHeartbeats{},
@@ -317,6 +327,17 @@ func TestNewApp_ServesWebsiteFromDist(t *testing.T) {
 	}
 	if !strings.Contains(string(rootBody), "website") {
 		t.Fatalf("expected root response to contain website markup, got %s", string(rootBody))
+	}
+	for _, expected := range []string{
+		"window.__WAKA_DASHBOARD_CONFIG__",
+		`"timezone":"Asia/Bangkok"`,
+	} {
+		if !strings.Contains(string(rootBody), expected) {
+			t.Fatalf("expected root response to contain %s, got %s", expected, string(rootBody))
+		}
+	}
+	if strings.Contains(string(rootBody), "runtime-key") {
+		t.Fatalf("expected root response to avoid exposing api key, got %s", string(rootBody))
 	}
 
 	assetReq := httptest.NewRequest("GET", "/assets/app.js", http.NoBody)
@@ -508,12 +529,12 @@ func TestNewApp_LogsAPIRequestsAtDebugLevel(t *testing.T) {
 func TestNewApp_DashboardMapsLastMonthToCalendarStatsRange(t *testing.T) {
 	query := &recordingQuery{}
 	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
-		Auth:       stubAuth{},
+		Auth:       service.NewAuthService("secret"),
 		Heartbeats: stubHeartbeats{},
 		Query:      query,
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/users/current/dashboard?range=Last+Month&timezone=Asia%2FBangkok", http.NoBody)
+	req := httptest.NewRequest("GET", "/api/v2/dashboard?range=Last+Month&timezone=Asia%2FBangkok", http.NoBody)
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test returned error: %v", err)
@@ -548,15 +569,147 @@ func TestNewApp_DashboardMapsLastMonthToCalendarStatsRange(t *testing.T) {
 	}
 }
 
-func TestNewApp_DashboardMapsLastYearToCalendarStatsRange(t *testing.T) {
+func TestNewApp_LiveDashboardBypassesAuth(t *testing.T) {
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       service.NewAuthService("secret"),
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+
+	req := httptest.NewRequest("GET", "/api/v2/live?timezone=Asia%2FBangkok", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	body := string(bodyBytes)
+	for _, expected := range []string{
+		`"status":"synchronized"`,
+		`"today":`,
+		`"project_durations":`,
+		`"language_durations":`,
+		`"cached_at":`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected response body to contain %s, got %s", expected, body)
+		}
+	}
+}
+
+func TestNewApp_DashboardSecondaryPagesBypassAuth(t *testing.T) {
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       service.NewAuthService("secret"),
+		Heartbeats: stubHeartbeats{},
+		Query:      stubQuery{},
+	})
+
+	for _, path := range []string{
+		"/api/v2/insights?timezone=Asia%2FBangkok",
+		"/api/v2/wrapped?year=2026&timezone=Asia%2FBangkok",
+	} {
+		req := httptest.NewRequest("GET", path, http.NoBody)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("app.Test returned error for %s: %v", path, err)
+		}
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("read response body for %s: %v", path, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d with body %s", path, resp.StatusCode, string(bodyBytes))
+		}
+
+		body := string(bodyBytes)
+		for _, expected := range []string{`"summaries":`, `"timezone":"Asia/Bangkok"`} {
+			if !strings.Contains(body, expected) {
+				t.Fatalf("expected response body for %s to contain %s, got %s", path, expected, body)
+			}
+		}
+	}
+}
+
+func TestNewApp_WrappedUsesSingleSummaryScan(t *testing.T) {
 	query := &recordingQuery{}
 	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
-		Auth:       stubAuth{},
+		Auth:       service.NewAuthService("secret"),
 		Heartbeats: stubHeartbeats{},
 		Query:      query,
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/users/current/dashboard?range=Last+Year&timezone=Asia%2FBangkok", http.NoBody)
+	req := httptest.NewRequest("GET", "/api/v2/wrapped?year=2026&timezone=Asia%2FBangkok", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d with body %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	if len(query.summaryCalls) != 1 {
+		t.Fatalf("expected 1 summaries call, got %d", len(query.summaryCalls))
+	}
+	if query.summaryCalls[0].Range != "2026" {
+		t.Fatalf("expected summaries range %q, got %q", "2026", query.summaryCalls[0].Range)
+	}
+	if len(query.statsCalls) != 0 {
+		t.Fatalf("expected wrapped endpoint to avoid stats scan, got %d calls", len(query.statsCalls))
+	}
+}
+
+func TestNewApp_DashboardUsesSelectedSingleDayForDurations(t *testing.T) {
+	query := &recordingQuery{}
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       service.NewAuthService("secret"),
+		Heartbeats: stubHeartbeats{},
+		Query:      query,
+	})
+
+	req := httptest.NewRequest("GET", "/api/v2/dashboard?start=2026-06-15&end=2026-06-15&timezone=Asia%2FBangkok", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d with body %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	query.mu.Lock()
+	defer query.mu.Unlock()
+	if len(query.durationCalls) != 2 {
+		t.Fatalf("expected 2 durations calls, got %d", len(query.durationCalls))
+	}
+	for _, call := range query.durationCalls {
+		if call.Date != "2026-06-15" {
+			t.Fatalf("expected duration date %q, got %q", "2026-06-15", call.Date)
+		}
+	}
+}
+
+func TestNewApp_DashboardMapsLastYearToCalendarStatsRange(t *testing.T) {
+	query := &recordingQuery{}
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       service.NewAuthService("secret"),
+		Heartbeats: stubHeartbeats{},
+		Query:      query,
+	})
+
+	req := httptest.NewRequest("GET", "/api/v2/dashboard?range=Last+Year&timezone=Asia%2FBangkok", http.NoBody)
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test returned error: %v", err)

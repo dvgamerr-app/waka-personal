@@ -54,6 +54,7 @@ func NewApp(cfg *config.Config, checker *Checker, services Services) *fiber.App 
 	configureAppMiddleware(app, cfg)
 	registerHealthRoutes(app, checker)
 	registerUserRoutes(app, services)
+	registerDashboardRoutes(app, services)
 	registerWebsiteRoutes(app, cfg)
 
 	return app
@@ -161,7 +162,15 @@ func registerUserRoutes(app *fiber.App, services Services) {
 	api.Get("/statusbar/today", statusbarTodayHandler(services.Query))
 	api.Get("/status_bar/today", statusbarTodayHandler(services.Query))
 	api.Post("/file_experts", fileExpertsHandler(services.Query))
+}
+
+func registerDashboardRoutes(app *fiber.App, services Services) {
+	api := app.Group("/api/v2")
+	api.Use(cacheControlMiddleware())
 	api.Get("/dashboard", dashboardHandler(services.Query))
+	api.Get("/live", liveDashboardHandler(services.Query))
+	api.Get("/insights", insightsHandler(services.Query))
+	api.Get("/wrapped", wrappedHandler(services.Query))
 }
 
 func registerWebsiteRoutes(app *fiber.App, cfg *config.Config) {
@@ -176,24 +185,51 @@ func registerWebsiteRoutes(app *fiber.App, cfg *config.Config) {
 		return
 	}
 
+	indexHandler := websiteIndexHandler(indexPath, cfg)
+	app.Get("/", indexHandler)
+	app.Head("/", indexHandler)
+
 	app.Static("/", distDir, fiber.Static{
 		Browse:   false,
 		Compress: true,
 		Index:    "index.html",
 	})
 
-	indexHandler := websiteIndexHandler(indexPath)
 	app.Get("/*", indexHandler)
 	app.Head("/*", indexHandler)
 }
 
-func websiteIndexHandler(indexPath string) fiber.Handler {
+func websiteIndexHandler(indexPath string, cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if !shouldServeWebsiteIndex(c.Path()) {
 			return fiber.ErrNotFound
 		}
-		return c.SendFile(indexPath)
+		html, err := os.ReadFile(indexPath)
+		if err != nil {
+			return fmt.Errorf("read website index: %w", err)
+		}
+		c.Type("html", "utf-8")
+		if c.Method() == fiber.MethodHead {
+			return c.SendStatus(fiber.StatusOK)
+		}
+		return c.SendString(injectDashboardRuntimeConfig(string(html), cfg))
 	}
+}
+
+func injectDashboardRuntimeConfig(html string, cfg *config.Config) string {
+	payload, err := json.Marshal(map[string]string{
+		"apiBase":  "",
+		"timezone": cfg.AppTimezone,
+	})
+	if err != nil {
+		return html
+	}
+
+	script := `<script>window.__WAKA_DASHBOARD_CONFIG__=` + string(payload) + `;</script>`
+	if strings.Contains(html, "</head>") {
+		return strings.Replace(html, "</head>", script+"</head>", 1)
+	}
+	return script + html
 }
 
 func shouldServeWebsiteIndex(path string) bool {
@@ -556,7 +592,7 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			loc = time.UTC
 		}
 		statsRange := dashboardStatsRange(rangeParam, time.Now().In(loc), loc)
-		todayDate := time.Now().In(loc).Format("2006-01-02")
+		durationDate := dashboardDurationDate(rangeParam, start, end, time.Now().In(loc))
 
 		summaryParams := domain.SummaryQueryParams{Timezone: timezone}
 		if start != "" && end != "" {
@@ -594,11 +630,11 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			todayCh <- statsResult{v, e}
 		}()
 		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "project", Timezone: timezone})
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "project", Timezone: timezone})
 			projCh <- listResult{items, e}
 		}()
 		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "language", Timezone: timezone})
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "language", Timezone: timezone})
 			langCh <- listResult{items, e}
 		}()
 
@@ -652,6 +688,134 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 	}
 }
 
+func liveDashboardHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		timezone := c.Query("timezone", "UTC")
+		loc, err := time.LoadLocation(timezone)
+		if err != nil {
+			loc = time.UTC
+		}
+
+		now := time.Now().UTC()
+		todayDate := now.In(loc).Format("2006-01-02")
+
+		type statsResult struct {
+			data map[string]any
+			err  error
+		}
+		type listResult struct {
+			data []map[string]any
+			err  error
+		}
+
+		todayCh := make(chan statsResult, 1)
+		projCh := make(chan listResult, 1)
+		langCh := make(chan listResult, 1)
+
+		go func() {
+			v, e := query.StatusbarToday(c.Context(), now)
+			todayCh <- statsResult{v, e}
+		}()
+		go func() {
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "project", Timezone: timezone})
+			projCh <- listResult{items, e}
+		}()
+		go func() {
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "language", Timezone: timezone})
+			langCh <- listResult{items, e}
+		}()
+
+		todayRes := <-todayCh
+		projRes := <-projCh
+		langRes := <-langCh
+
+		var apiErrors []string
+		if todayRes.err != nil {
+			apiErrors = append(apiErrors, todayRes.err.Error())
+		}
+		if projRes.err != nil {
+			apiErrors = append(apiErrors, projRes.err.Error())
+		}
+		if langRes.err != nil {
+			apiErrors = append(apiErrors, langRes.err.Error())
+		}
+
+		if todayRes.data == nil {
+			todayRes.data = map[string]any{}
+		}
+		if projRes.data == nil {
+			projRes.data = []map[string]any{}
+		}
+		if langRes.data == nil {
+			langRes.data = []map[string]any{}
+		}
+
+		return c.JSON(fiber.Map{
+			"cached_at":          now.Format(time.RFC3339),
+			"status":             "synchronized",
+			"today":              todayRes.data,
+			"project_durations":  projRes.data,
+			"language_durations": langRes.data,
+			"errors":             apiErrors,
+		})
+	}
+}
+
+func insightsHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		timezone := c.Query("timezone", "UTC")
+		rangeParam := c.Query("range", "Last 7 Days")
+		summaries, err := query.Summaries(c.Context(), domain.SummaryQueryParams{
+			Range:    rangeParam,
+			Timezone: timezone,
+		})
+		if err != nil {
+			return err
+		}
+		if summaries == nil {
+			summaries = []map[string]any{}
+		}
+		return c.JSON(fiber.Map{
+			"timezone":     timezone,
+			"range":        rangeParam,
+			"summaries":    summaries,
+			"generated_at": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+func wrappedHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		timezone := c.Query("timezone", "UTC")
+		year := strings.TrimSpace(c.Query("year"))
+		if year == "" {
+			loc, err := time.LoadLocation(timezone)
+			if err != nil {
+				loc = time.UTC
+			}
+			year = time.Now().In(loc).Format("2006")
+		}
+
+		summaries, err := query.Summaries(c.Context(), domain.SummaryQueryParams{
+			Range:    year,
+			Timezone: timezone,
+		})
+		if err != nil {
+			return err
+		}
+		if summaries == nil {
+			summaries = []map[string]any{}
+		}
+		return c.JSON(fiber.Map{
+			"timezone":     timezone,
+			"year":         year,
+			"stats":        fiber.Map{},
+			"summaries":    summaries,
+			"generated_at": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
 func cacheControlMiddleware() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if c.Method() != fiber.MethodGet {
@@ -675,7 +839,8 @@ func requestIncludesToday(c *fiber.Ctx) bool {
 
 	if strings.HasSuffix(path, "/statusbar/today") ||
 		strings.HasSuffix(path, "/status_bar/today") ||
-		strings.HasSuffix(path, "/dashboard") {
+		strings.HasSuffix(path, "/dashboard") ||
+		strings.HasSuffix(path, "/live") {
 		return true
 	}
 
@@ -731,6 +896,19 @@ func dashboardStatsRange(rangeParam string, now time.Time, loc *time.Location) s
 			return rangeName
 		}
 		return "last_7_days"
+	}
+}
+
+func dashboardDurationDate(rangeParam, start, end string, now time.Time) string {
+	if strings.TrimSpace(start) != "" && start == end {
+		return start
+	}
+
+	switch strings.ToLower(strings.TrimSpace(rangeParam)) {
+	case "yesterday":
+		return now.AddDate(0, 0, -1).Format("2006-01-02")
+	default:
+		return now.Format("2006-01-02")
 	}
 }
 

@@ -345,6 +345,22 @@ func parseSummaryWindow(params domain.SummaryQueryParams, now time.Time, loc *ti
 		return rangeWindow{name: "Last Year", humanName: "Last Year", startLocal: lastYearStart, endLocal: lastYearEnd}, nil
 	}
 
+	rangeName := strings.TrimSpace(strings.ToLower(params.Range))
+	if parsed, err := time.ParseInLocation("2006-01", rangeName, loc); err == nil {
+		endLocal := parsed.AddDate(0, 1, 0)
+		if parsed.Year() == now.Year() && parsed.Month() == now.Month() {
+			endLocal = tomorrow
+		}
+		return rangeWindow{name: rangeName, humanName: parsed.Format("January 2006"), startLocal: parsed, endLocal: endLocal}, nil
+	}
+	if parsed, err := time.ParseInLocation("2006", rangeName, loc); err == nil {
+		endLocal := parsed.AddDate(1, 0, 0)
+		if parsed.Year() == now.Year() {
+			endLocal = tomorrow
+		}
+		return rangeWindow{name: rangeName, humanName: parsed.Format("2006"), startLocal: parsed, endLocal: endLocal}, nil
+	}
+
 	if strings.TrimSpace(params.Start) == "" || strings.TrimSpace(params.End) == "" {
 		return rangeWindow{}, fmt.Errorf("start and end are required when range is empty")
 	}
