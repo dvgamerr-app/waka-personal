@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,6 +22,11 @@ import (
 
 type Store struct {
 	db *pgxpool.Pool
+}
+
+type sourceUserAgentDB interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 const upsertHeartbeatQuery = `
@@ -107,6 +113,118 @@ func (s *Store) Close() {
 	if s.db != nil {
 		s.db.Close()
 	}
+}
+
+func (s *Store) ResolveSourceUserAgentID(ctx context.Context, preferredID, userAgent string) (string, error) {
+	id, err := upsertSourceUserAgent(ctx, s.db, preferredID, userAgent, "api")
+	if err != nil {
+		return "", fmt.Errorf("resolve source user agent: %w", err)
+	}
+	return id, nil
+}
+
+func upsertSourceUserAgent(ctx context.Context, db sourceUserAgentDB, preferredID, userAgent, source string) (string, error) {
+	preferredID = strings.TrimSpace(preferredID)
+	userAgent = strings.TrimSpace(userAgent)
+	if preferredID == "" && userAgent == "" {
+		return "", nil
+	}
+
+	agentKey, agentName := domain.InferAIAgent(userAgent)
+	if source == "" {
+		source = "local"
+	}
+
+	if preferredID != "" && userAgent != "" {
+		if err := replaceGeneratedSourceUserAgentID(ctx, db, preferredID, userAgent, agentKey, agentName, source); err != nil {
+			return "", err
+		}
+	}
+
+	id := preferredID
+	if id == "" {
+		id = uuid.NewString()
+	}
+
+	var resolvedID string
+	err := db.QueryRow(ctx, `
+		INSERT INTO source_user_agents (id, user_agent, ai_agent_key, ai_agent_name, source, updated_at)
+		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5, NOW())
+		ON CONFLICT (id) DO UPDATE
+		SET user_agent = COALESCE(EXCLUDED.user_agent, source_user_agents.user_agent),
+			ai_agent_key = COALESCE(EXCLUDED.ai_agent_key, source_user_agents.ai_agent_key),
+			ai_agent_name = COALESCE(EXCLUDED.ai_agent_name, source_user_agents.ai_agent_name),
+			source = EXCLUDED.source,
+			updated_at = NOW()
+		RETURNING id
+	`, id, userAgent, agentKey, agentName, source).Scan(&resolvedID)
+	if err == nil {
+		return resolvedID, nil
+	}
+	if !IsUniqueViolation(err) || userAgent == "" {
+		return "", fmt.Errorf("upsert source user agent: %w", err)
+	}
+
+	err = db.QueryRow(ctx, `
+		UPDATE source_user_agents
+		SET ai_agent_key = COALESCE(NULLIF($2, ''), ai_agent_key),
+			ai_agent_name = COALESCE(NULLIF($3, ''), ai_agent_name),
+			source = $4,
+			updated_at = NOW()
+		WHERE user_agent = $1
+		RETURNING id
+	`, userAgent, agentKey, agentName, source).Scan(&resolvedID)
+	if err != nil {
+		return "", fmt.Errorf("lookup source user agent by user_agent: %w", err)
+	}
+	return resolvedID, nil
+}
+
+func replaceGeneratedSourceUserAgentID(ctx context.Context, db sourceUserAgentDB, preferredID, userAgent, agentKey, agentName, source string) error {
+	var existingID string
+	err := db.QueryRow(ctx, `
+		SELECT id
+		FROM source_user_agents
+		WHERE user_agent = $1
+		LIMIT 1
+	`, userAgent).Scan(&existingID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lookup existing source user agent: %w", err)
+	}
+	if existingID == preferredID {
+		return nil
+	}
+
+	_, err = db.Exec(ctx, `
+		UPDATE source_user_agents
+		SET id = $1,
+			ai_agent_key = COALESCE(NULLIF($3, ''), ai_agent_key),
+			ai_agent_name = COALESCE(NULLIF($4, ''), ai_agent_name),
+			source = $5,
+			updated_at = NOW()
+		WHERE id = $2
+	`, preferredID, existingID, agentKey, agentName, source)
+	if err == nil {
+		return nil
+	}
+	if !IsUniqueViolation(err) {
+		return fmt.Errorf("replace generated source user agent id: %w", err)
+	}
+
+	if _, err := db.Exec(ctx, `
+		UPDATE heartbeats
+		SET source_user_agent_id = $1
+		WHERE source_user_agent_id = $2
+	`, preferredID, existingID); err != nil {
+		return fmt.Errorf("move heartbeats to trusted source user agent id: %w", err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM source_user_agents WHERE id = $1`, existingID); err != nil {
+		return fmt.Errorf("delete generated source user agent id: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) UpsertHeartbeats(ctx context.Context, records []domain.HeartbeatRecord) ([]domain.HeartbeatRecord, error) {
@@ -574,6 +692,9 @@ func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID st
 	if copyErr := copyHeartbeatCSVIntoTempTable(ctx, tx, csvPath, batchID); copyErr != nil {
 		return 0, 0, copyErr
 	}
+	if userAgentErr := upsertTempSourceUserAgents(ctx, tx); userAgentErr != nil {
+		return 0, 0, userAgentErr
+	}
 
 	var totalRows int64
 	totalRows, err = countTempImportRows(ctx, tx)
@@ -678,8 +799,246 @@ func countTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
 	return totalRows, nil
 }
 
-func insertTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
-	tag, err := tx.Exec(ctx, `
+const upsertTempSourceUserAgentsQuery = `
+		INSERT INTO source_user_agents (id, user_agent, ai_agent_key, ai_agent_name, source, updated_at)
+		SELECT DISTINCT ON (plugin)
+			'local-' || md5(plugin),
+			plugin,
+			CASE
+				WHEN lower(plugin) LIKE '%claude%' THEN 'claude'
+				WHEN lower(plugin) LIKE '%codex%' THEN 'codex'
+				WHEN lower(plugin) LIKE '%copilot%' THEN 'copilot'
+				WHEN lower(plugin) LIKE '%cursor%' THEN 'cursor'
+				WHEN lower(plugin) LIKE '%gemini%' THEN 'gemini'
+				WHEN lower(plugin) LIKE '%qwen%' THEN 'qwen'
+				WHEN lower(plugin) LIKE '%kiro%' THEN 'kiro'
+				WHEN lower(plugin) LIKE '%goose%' THEN 'goose'
+				WHEN lower(plugin) LIKE '%continue%' THEN 'continue'
+				WHEN lower(plugin) LIKE '%windsurf%' THEN 'windsurf'
+				WHEN lower(plugin) LIKE '%cline%' THEN 'cline'
+				WHEN lower(plugin) LIKE '%roo%' THEN 'roo'
+				WHEN lower(plugin) LIKE '%cody%' THEN 'cody'
+				WHEN lower(plugin) LIKE '%opencode%' THEN 'opencode'
+				WHEN lower(plugin) LIKE '%qoder%' THEN 'qoder'
+				ELSE NULL
+			END,
+			CASE
+				WHEN lower(plugin) LIKE '%claude%' THEN 'Claude'
+				WHEN lower(plugin) LIKE '%codex%' THEN 'Codex'
+				WHEN lower(plugin) LIKE '%copilot%' THEN 'Copilot'
+				WHEN lower(plugin) LIKE '%cursor%' THEN 'Cursor'
+				WHEN lower(plugin) LIKE '%gemini%' THEN 'Gemini'
+				WHEN lower(plugin) LIKE '%qwen%' THEN 'Qwen'
+				WHEN lower(plugin) LIKE '%kiro%' THEN 'Kiro'
+				WHEN lower(plugin) LIKE '%goose%' THEN 'Goose'
+				WHEN lower(plugin) LIKE '%continue%' THEN 'Continue'
+				WHEN lower(plugin) LIKE '%windsurf%' THEN 'Windsurf'
+				WHEN lower(plugin) LIKE '%cline%' THEN 'Cline'
+				WHEN lower(plugin) LIKE '%roo%' THEN 'Roo'
+				WHEN lower(plugin) LIKE '%cody%' THEN 'Cody'
+				WHEN lower(plugin) LIKE '%opencode%' THEN 'OpenCode'
+				WHEN lower(plugin) LIKE '%qoder%' THEN 'Qoder'
+				ELSE NULL
+			END,
+			'local',
+			NOW()
+		FROM import_heartbeats_tmp
+		WHERE (source_user_agent_id IS NULL OR source_user_agent_id = '')
+		  AND plugin IS NOT NULL
+		  AND plugin <> ''
+		ORDER BY plugin, time DESC
+		ON CONFLICT DO NOTHING;
+
+		UPDATE import_heartbeats_tmp AS tmp
+		SET source_user_agent_id = agents.id
+		FROM source_user_agents AS agents
+		WHERE (tmp.source_user_agent_id IS NULL OR tmp.source_user_agent_id = '')
+		  AND tmp.plugin = agents.user_agent;
+
+		WITH exported AS (
+			SELECT DISTINCT ON (source_user_agent_id)
+				source_user_agent_id AS id,
+				NULLIF(plugin, '') AS user_agent,
+				CASE
+					WHEN lower(plugin) LIKE '%claude%' THEN 'claude'
+					WHEN lower(plugin) LIKE '%codex%' THEN 'codex'
+					WHEN lower(plugin) LIKE '%copilot%' THEN 'copilot'
+					WHEN lower(plugin) LIKE '%cursor%' THEN 'cursor'
+					WHEN lower(plugin) LIKE '%gemini%' THEN 'gemini'
+					WHEN lower(plugin) LIKE '%qwen%' THEN 'qwen'
+					WHEN lower(plugin) LIKE '%kiro%' THEN 'kiro'
+					WHEN lower(plugin) LIKE '%goose%' THEN 'goose'
+					WHEN lower(plugin) LIKE '%continue%' THEN 'continue'
+					WHEN lower(plugin) LIKE '%windsurf%' THEN 'windsurf'
+					WHEN lower(plugin) LIKE '%cline%' THEN 'cline'
+					WHEN lower(plugin) LIKE '%roo%' THEN 'roo'
+					WHEN lower(plugin) LIKE '%cody%' THEN 'cody'
+					WHEN lower(plugin) LIKE '%opencode%' THEN 'opencode'
+					WHEN lower(plugin) LIKE '%qoder%' THEN 'qoder'
+					ELSE NULL
+				END AS ai_agent_key,
+				CASE
+					WHEN lower(plugin) LIKE '%claude%' THEN 'Claude'
+					WHEN lower(plugin) LIKE '%codex%' THEN 'Codex'
+					WHEN lower(plugin) LIKE '%copilot%' THEN 'Copilot'
+					WHEN lower(plugin) LIKE '%cursor%' THEN 'Cursor'
+					WHEN lower(plugin) LIKE '%gemini%' THEN 'Gemini'
+					WHEN lower(plugin) LIKE '%qwen%' THEN 'Qwen'
+					WHEN lower(plugin) LIKE '%kiro%' THEN 'Kiro'
+					WHEN lower(plugin) LIKE '%goose%' THEN 'Goose'
+					WHEN lower(plugin) LIKE '%continue%' THEN 'Continue'
+					WHEN lower(plugin) LIKE '%windsurf%' THEN 'Windsurf'
+					WHEN lower(plugin) LIKE '%cline%' THEN 'Cline'
+					WHEN lower(plugin) LIKE '%roo%' THEN 'Roo'
+					WHEN lower(plugin) LIKE '%cody%' THEN 'Cody'
+					WHEN lower(plugin) LIKE '%opencode%' THEN 'OpenCode'
+					WHEN lower(plugin) LIKE '%qoder%' THEN 'Qoder'
+					ELSE NULL
+				END AS ai_agent_name
+			FROM import_heartbeats_tmp
+			WHERE source_user_agent_id IS NOT NULL
+			  AND source_user_agent_id <> ''
+			ORDER BY source_user_agent_id, CASE WHEN plugin IS NULL OR plugin = '' THEN 1 ELSE 0 END, time DESC
+		),
+		replacements AS (
+			SELECT DISTINCT ON (user_agent) *
+			FROM exported
+			WHERE user_agent IS NOT NULL
+			ORDER BY user_agent, id
+		)
+		UPDATE source_user_agents AS agents
+		SET id = replacements.id,
+			ai_agent_key = COALESCE(replacements.ai_agent_key, agents.ai_agent_key),
+			ai_agent_name = COALESCE(replacements.ai_agent_name, agents.ai_agent_name),
+			source = 'wakatime-export',
+			updated_at = NOW()
+		FROM replacements
+		WHERE agents.user_agent = replacements.user_agent
+		  AND agents.id <> replacements.id
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM source_user_agents AS existing
+			WHERE existing.id = replacements.id
+		  );
+
+		WITH exported AS (
+			SELECT DISTINCT ON (source_user_agent_id)
+				source_user_agent_id AS id,
+				NULLIF(plugin, '') AS user_agent
+			FROM import_heartbeats_tmp
+			WHERE source_user_agent_id IS NOT NULL
+			  AND source_user_agent_id <> ''
+			ORDER BY source_user_agent_id, CASE WHEN plugin IS NULL OR plugin = '' THEN 1 ELSE 0 END, time DESC
+		),
+		replacements AS (
+			SELECT DISTINCT ON (user_agent) *
+			FROM exported
+			WHERE user_agent IS NOT NULL
+			ORDER BY user_agent, id
+		),
+		moved_heartbeats AS (
+			UPDATE heartbeats AS heartbeats
+			SET source_user_agent_id = replacements.id
+			FROM source_user_agents AS agents
+			JOIN replacements ON replacements.user_agent = agents.user_agent
+			WHERE agents.id <> replacements.id
+			  AND heartbeats.source_user_agent_id = agents.id
+			  AND EXISTS (
+				SELECT 1
+				FROM source_user_agents AS existing
+				WHERE existing.id = replacements.id
+			  )
+			RETURNING agents.id
+		)
+		DELETE FROM source_user_agents AS agents
+		USING replacements
+		WHERE agents.user_agent = replacements.user_agent
+		  AND agents.id <> replacements.id
+		  AND EXISTS (
+			SELECT 1
+			FROM source_user_agents AS existing
+			WHERE existing.id = replacements.id
+		  );
+
+		INSERT INTO source_user_agents (id, user_agent, ai_agent_key, ai_agent_name, source, updated_at)
+		SELECT DISTINCT ON (source_user_agent_id)
+			source_user_agent_id,
+			NULLIF(plugin, ''),
+			CASE
+				WHEN lower(plugin) LIKE '%claude%' THEN 'claude'
+				WHEN lower(plugin) LIKE '%codex%' THEN 'codex'
+				WHEN lower(plugin) LIKE '%copilot%' THEN 'copilot'
+				WHEN lower(plugin) LIKE '%cursor%' THEN 'cursor'
+				WHEN lower(plugin) LIKE '%gemini%' THEN 'gemini'
+				WHEN lower(plugin) LIKE '%qwen%' THEN 'qwen'
+				WHEN lower(plugin) LIKE '%kiro%' THEN 'kiro'
+				WHEN lower(plugin) LIKE '%goose%' THEN 'goose'
+				WHEN lower(plugin) LIKE '%continue%' THEN 'continue'
+				WHEN lower(plugin) LIKE '%windsurf%' THEN 'windsurf'
+				WHEN lower(plugin) LIKE '%cline%' THEN 'cline'
+				WHEN lower(plugin) LIKE '%roo%' THEN 'roo'
+				WHEN lower(plugin) LIKE '%cody%' THEN 'cody'
+				WHEN lower(plugin) LIKE '%opencode%' THEN 'opencode'
+				WHEN lower(plugin) LIKE '%qoder%' THEN 'qoder'
+				ELSE NULL
+			END,
+			CASE
+				WHEN lower(plugin) LIKE '%claude%' THEN 'Claude'
+				WHEN lower(plugin) LIKE '%codex%' THEN 'Codex'
+				WHEN lower(plugin) LIKE '%copilot%' THEN 'Copilot'
+				WHEN lower(plugin) LIKE '%cursor%' THEN 'Cursor'
+				WHEN lower(plugin) LIKE '%gemini%' THEN 'Gemini'
+				WHEN lower(plugin) LIKE '%qwen%' THEN 'Qwen'
+				WHEN lower(plugin) LIKE '%kiro%' THEN 'Kiro'
+				WHEN lower(plugin) LIKE '%goose%' THEN 'Goose'
+				WHEN lower(plugin) LIKE '%continue%' THEN 'Continue'
+				WHEN lower(plugin) LIKE '%windsurf%' THEN 'Windsurf'
+				WHEN lower(plugin) LIKE '%cline%' THEN 'Cline'
+				WHEN lower(plugin) LIKE '%roo%' THEN 'Roo'
+				WHEN lower(plugin) LIKE '%cody%' THEN 'Cody'
+				WHEN lower(plugin) LIKE '%opencode%' THEN 'OpenCode'
+				WHEN lower(plugin) LIKE '%qoder%' THEN 'Qoder'
+				ELSE NULL
+			END,
+			'wakatime-export',
+			NOW()
+		FROM import_heartbeats_tmp
+		WHERE source_user_agent_id IS NOT NULL
+		  AND source_user_agent_id <> ''
+		ORDER BY source_user_agent_id, CASE WHEN plugin IS NULL OR plugin = '' THEN 1 ELSE 0 END, time DESC
+		ON CONFLICT (id) DO UPDATE
+		SET user_agent = COALESCE(EXCLUDED.user_agent, source_user_agents.user_agent),
+			ai_agent_key = COALESCE(EXCLUDED.ai_agent_key, source_user_agents.ai_agent_key),
+			ai_agent_name = COALESCE(EXCLUDED.ai_agent_name, source_user_agents.ai_agent_name),
+			source = EXCLUDED.source,
+			updated_at = NOW();
+
+		UPDATE import_heartbeats_tmp AS tmp
+		SET source_user_agent_id = agents.id
+		FROM source_user_agents AS agents
+		WHERE tmp.plugin = agents.user_agent
+		  AND tmp.plugin IS NOT NULL
+		  AND tmp.plugin <> ''
+		  AND (
+			tmp.source_user_agent_id IS NULL
+			OR tmp.source_user_agent_id = ''
+			OR tmp.source_user_agent_id LIKE 'local-%'
+		  )
+	`
+
+func upsertTempSourceUserAgents(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, upsertTempSourceUserAgentsQuery); err != nil {
+		return fmt.Errorf("upsert temp source user agents: %w", err)
+	}
+	return nil
+}
+
+const insertTempImportRowsQuery = `
+		WITH deduped AS (
+			SELECT DISTINCT ON (dedupe_hash) *
+			FROM import_heartbeats_tmp
+			ORDER BY dedupe_hash, source_created_at DESC NULLS LAST, time DESC
+		)
 		INSERT INTO heartbeats (
 			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
@@ -697,9 +1056,43 @@ func insertTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
 			dependencies, import_batch_id, origin_payload, NULLIF(ai_session, ''),
 			NULLIF(ai_subscription_plan, ''), ai_input_tokens, ai_output_tokens, ai_prompt_length,
 			NOW(), NOW()
-		FROM import_heartbeats_tmp
-		ON CONFLICT (dedupe_hash) DO NOTHING
-	`)
+		FROM deduped
+		ON CONFLICT (dedupe_hash) DO UPDATE
+		SET source_heartbeat_id = EXCLUDED.source_heartbeat_id,
+			time = EXCLUDED.time,
+			source_created_at = EXCLUDED.source_created_at,
+			entity = EXCLUDED.entity,
+			type = EXCLUDED.type,
+			category = EXCLUDED.category,
+			project = EXCLUDED.project,
+			branch = EXCLUDED.branch,
+			language = EXCLUDED.language,
+			project_root_count = EXCLUDED.project_root_count,
+			project_folder = EXCLUDED.project_folder,
+			lineno = EXCLUDED.lineno,
+			cursorpos = EXCLUDED.cursorpos,
+			lines = EXCLUDED.lines,
+			is_write = EXCLUDED.is_write,
+			is_unsaved_entity = EXCLUDED.is_unsaved_entity,
+			ai_line_changes = EXCLUDED.ai_line_changes,
+			human_line_changes = EXCLUDED.human_line_changes,
+			machine_name = EXCLUDED.machine_name,
+			source_machine_name_id = EXCLUDED.source_machine_name_id,
+			plugin = EXCLUDED.plugin,
+			source_user_agent_id = EXCLUDED.source_user_agent_id,
+			dependencies = EXCLUDED.dependencies,
+			import_batch_id = EXCLUDED.import_batch_id,
+			origin_payload = EXCLUDED.origin_payload,
+			ai_session = EXCLUDED.ai_session,
+			ai_subscription_plan = EXCLUDED.ai_subscription_plan,
+			ai_input_tokens = EXCLUDED.ai_input_tokens,
+			ai_output_tokens = EXCLUDED.ai_output_tokens,
+			ai_prompt_length = EXCLUDED.ai_prompt_length,
+			updated_at = NOW()
+	`
+
+func insertTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
+	tag, err := tx.Exec(ctx, insertTempImportRowsQuery)
 	if err != nil {
 		return 0, fmt.Errorf("insert temp import rows: %w", err)
 	}

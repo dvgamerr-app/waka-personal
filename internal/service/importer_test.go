@@ -66,3 +66,11 @@ func TestBuildDuckDBSQLIncludesMaximumObjectSize(t *testing.T) {
 		t.Fatalf("expected SQL to contain %q, got %q", expected, sql)
 	}
 }
+
+func TestBuildDuckDBSQLUsesUserAgentAsPluginFallback(t *testing.T) {
+	sql := buildDuckDBSQL("input.json", "output.csv")
+	expected := "json_extract_string(hb_json, '$.user_agent')"
+	if !strings.Contains(sql, expected) {
+		t.Fatalf("expected SQL to contain %q, got %q", expected, sql)
+	}
+}
