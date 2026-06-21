@@ -49,11 +49,21 @@ const loadInsights = async ({ base, timezone }) => {
     params: { range: 'Last 7 Days', timezone },
   })
   if (error || !data) {
-    return { timezone, summaries: [], errors: [error || 'Failed to load insights'] }
+    return {
+      timezone,
+      summaries: [],
+      stats: {},
+      tokenMetrics: {},
+      spendMetrics: {},
+      errors: [error || 'Failed to load insights'],
+    }
   }
   return {
     timezone: data.timezone || timezone,
     summaries: data.summaries || [],
+    stats: data.stats || {},
+    tokenMetrics: data.token_metrics || {},
+    spendMetrics: data.spend_metrics || {},
     generatedAt: data.generated_at || '',
     errors: [],
   }
@@ -66,6 +76,9 @@ function InsightsContent({ config = {} }) {
   const [data, setData] = useState({
     timezone: fallbackTimezone,
     summaries: [],
+    stats: {},
+    tokenMetrics: {},
+    spendMetrics: {},
     errors: [],
   })
   const [loading, setLoading] = useState(true)
@@ -107,7 +120,7 @@ function InsightsContent({ config = {} }) {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Kpi
           label="Focus Score"
           value={
@@ -126,6 +139,12 @@ function InsightsContent({ config = {} }) {
           label="AI Share"
           value={formatPercent(aiPercent)}
           note={`${formatCount(aiTotal)} AI changes / ${formatCount(humanTotal)} human`}
+          icon={Zap}
+        />
+        <Kpi
+          label="AI Tokens"
+          value={formatCount(data.tokenMetrics?.total_tokens || 0)}
+          note={`${formatCount(data.tokenMetrics?.input_tokens || 0)} in`}
           icon={Zap}
         />
         <Kpi

@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Activity, Code2, Cpu, Terminal, Zap } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
-import ThemeToggle from './ThemeToggle'
 import DateRangePicker from './DateRangePicker'
 import {
   buildTrendSeries,
@@ -10,6 +9,7 @@ import {
   formatDayLabel,
   formatPercent,
   formatShortDuration,
+  formatSpend,
   normalizeItems,
   topItems,
 } from './dashboardUtils.js'
@@ -26,6 +26,8 @@ const normalizeDashboardData = (data = {}, fallbackTimezone = 'UTC') => ({
   today: data.today || {},
   projectDurations: data.projectDurations || [],
   languageDurations: data.languageDurations || [],
+  tokenMetrics: data.token_metrics || {},
+  spendMetrics: data.spend_metrics || {},
   errors: Array.isArray(data.errors) ? data.errors : [],
 })
 
@@ -35,6 +37,7 @@ const normalizeLiveData = (data = {}) => ({
   today: data.today || {},
   projectDurations: data.project_durations || [],
   languageDurations: data.language_durations || [],
+  editorDurations: data.editor_durations || [],
   errors: Array.isArray(data.errors) ? data.errors : [],
 })
 
@@ -56,6 +59,8 @@ const fetchDashboardData = async ({ base, timezone, range, start, end }) => {
       today: {},
       projectDurations: [],
       languageDurations: [],
+      tokenMetrics: {},
+      spendMetrics: {},
       errors: [error || 'Failed to load dashboard data'],
     }
   }
@@ -67,6 +72,8 @@ const fetchDashboardData = async ({ base, timezone, range, start, end }) => {
     today: data.today || {},
     projectDurations: data.project_durations || [],
     languageDurations: data.language_durations || [],
+    tokenMetrics: data.token_metrics || {},
+    spendMetrics: data.spend_metrics || {},
     errors: Array.isArray(data.errors) ? data.errors : [],
   }
 }
@@ -333,11 +340,11 @@ const ProjectMetrics = ({ projects, summaries }) => {
           <div className="min-w-[980px]">
             <div className="grid grid-cols-12 gap-4 border-b border-zinc-900 pb-2 text-[10px] tracking-[0.18em] text-zinc-600 uppercase">
               <div className="col-span-3">Project</div>
-              <div className="col-span-2 text-right">Time</div>
+              <div className="col-span-3 text-right">Time</div>
               <div className="col-span-2 text-right">AI changes</div>
               <div className="col-span-2 text-right">Human changes</div>
               <div className="col-span-1 text-right">AI %</div>
-              <div className="col-span-2 text-right">Activity Share</div>
+              <div className="col-span-1 text-right">Activity Share</div>
             </div>
             <div className="divide-y divide-zinc-900/70">
               {rows.map((project) => {
@@ -352,7 +359,7 @@ const ProjectMetrics = ({ projects, summaries }) => {
                       <span className="text-zinc-700">&gt;</span>
                       <span className="truncate">{project.name}</span>
                     </div>
-                    <div className="col-span-2 text-right font-mono text-zinc-400 tabular-nums">
+                    <div className="col-span-3 text-right font-mono text-zinc-400 tabular-nums">
                       {project.text || formatShortDuration(project.total_seconds)}
                     </div>
                     <div className="col-span-2 text-right font-mono text-sky-300 tabular-nums">
@@ -364,7 +371,7 @@ const ProjectMetrics = ({ projects, summaries }) => {
                     <div className="col-span-1 text-right font-mono text-zinc-500 tabular-nums">
                       {formatPercent(project.ai_percent)}
                     </div>
-                    <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_42px] items-center gap-2">
+                    <div className="col-span-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                       <ProgressLine value={project.percent} />
                       <span className="text-right font-mono text-[10px] text-zinc-500">
                         {formatPercent(project.percent)}
@@ -444,6 +451,37 @@ const AgentStations = ({ machines, editors }) => {
                 <span>{station.text || formatShortDuration(station.total_seconds)}</span>
                 <span>{formatPercent(station.percent)} load</span>
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const EditorUsage = ({ editors }) => {
+  const rows = topItems(editors, 4)
+  const total = rows.reduce((sum, e) => sum + (Number(e.total_seconds) || 0), 0)
+
+  return (
+    <section className={`${PANEL} p-5`}>
+      <SectionTitle>EDITOR_USAGE</SectionTitle>
+      {rows.length === 0 ? (
+        <EmptyState label="No editor data available." />
+      ) : (
+        <div className="space-y-3">
+          {rows.map((editor) => (
+            <div key={editor.name} className="text-[11px]">
+              <div className="mb-1 flex items-center justify-between gap-4">
+                <span className="truncate text-zinc-400">{editor.name}</span>
+                <span className="shrink-0 font-mono text-zinc-500 tabular-nums">
+                  {editor.text || formatShortDuration(editor.total_seconds)}
+                </span>
+              </div>
+              <ProgressLine
+                value={total > 0 ? ((Number(editor.total_seconds) || 0) / total) * 100 : 0}
+                accent="#7dd3fc99"
+              />
             </div>
           ))}
         </div>
@@ -631,6 +669,9 @@ function DashboardContent({ data, config }) {
               <a href="/insights" className="transition-colors hover:text-zinc-300">
                 Insights
               </a>
+              <a href="/reports" className="transition-colors hover:text-zinc-300">
+                Reports
+              </a>
               <a href="/wrapped" className="transition-colors hover:text-zinc-300">
                 Wrapped
               </a>
@@ -643,7 +684,6 @@ function DashboardContent({ data, config }) {
                 {loading ? 'Syncing' : 'Live tick'}
               </span>
             )}
-            <ThemeToggle />
             <DateRangePicker value={selectedRange} onChange={handleRangeChange} />
           </div>
         </div>
@@ -678,7 +718,7 @@ function DashboardContent({ data, config }) {
           </div>
         )}
 
-        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
           <KpiPanel
             label="Active Time [range]"
             value={
@@ -701,6 +741,19 @@ function DashboardContent({ data, config }) {
             value={`${activeDays}/${totalDays || 0}`}
             note={`Best: ${rangeStats?.bestDay?.text || stats.best_day?.text || 'No peak day yet'}`}
             icon={Terminal}
+          />
+          <KpiPanel
+            label="AI Tokens"
+            value={formatCount(dashData.tokenMetrics?.total_tokens || 0)}
+            note={`${formatCount(dashData.tokenMetrics?.input_tokens || 0)} in · ${formatCount(dashData.tokenMetrics?.output_tokens || 0)} out`}
+            icon={Code2}
+          />
+          <KpiPanel
+            label="AI Spend"
+            value={formatSpend(dashData.spendMetrics?.estimated_cents || 0)}
+            note={`${formatCount(dashData.spendMetrics?.token_count || 0)} tokens consumed`}
+            icon={Zap}
+            accent="#fbbf24"
           />
           <KpiPanel
             label="Today"
@@ -730,6 +783,7 @@ function DashboardContent({ data, config }) {
 
           <aside className="col-span-12 space-y-6 lg:col-span-4">
             <AgentStations machines={topMachines} editors={topEditors} />
+            <EditorUsage editors={liveData.editorDurations || []} />
             <RankedList
               title="LANGUAGE_INDEX"
               items={topLanguages}

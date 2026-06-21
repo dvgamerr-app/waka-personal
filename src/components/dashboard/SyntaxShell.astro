@@ -9,6 +9,7 @@ const {
 const links = [
   { id: 'dashboard', href: '/', label: 'Dashboard' },
   { id: 'insights', href: '/insights', label: 'Insights' },
+  { id: 'reports', href: '/reports', label: 'Reports' },
   { id: 'wrapped', href: '/wrapped', label: 'Wrapped' },
 ]
 ---
@@ -41,13 +42,6 @@ const links = [
           }
         </div>
       </div>
-      <a
-        href="/"
-        class="flex items-center gap-2 border border-sky-300 bg-sky-300/10 px-3 py-1.5 text-xs tracking-[0.24em] text-sky-300 uppercase transition-colors hover:bg-sky-300/20"
-      >
-        <span class="h-1.5 w-1.5 bg-sky-300"></span>
-        Open
-      </a>
     </div>
   </nav>
 
@@ -82,7 +76,7 @@ const links = [
       </div>
       <div class="flex items-center gap-2">
         <span class="text-zinc-500 uppercase">Routes:</span>
-        <span class="text-zinc-300">Dashboard / Insights / Wrapped</span>
+        <span class="text-zinc-300">Dashboard / Insights / Reports / Wrapped</span>
       </div>
       <div class="ml-auto flex gap-4">
         <span>API</span>

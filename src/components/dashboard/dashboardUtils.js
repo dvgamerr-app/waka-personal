@@ -36,6 +36,13 @@ export const formatCount = (value) => {
   return String(n)
 }
 
+export const formatSpend = (cents) => {
+  const dollars = (cents || 0) / 100
+  if (dollars === 0) return '$0'
+  if (dollars < 0.01) return '<$0.01'
+  return `$${dollars.toFixed(2)}`
+}
+
 export const formatDayLabel = (value) => {
   if (!value) return ''
   const date = new Date(`${value}T00:00:00`)

@@ -26,13 +26,23 @@ const loadWrapped = async ({ base, timezone, year }) => {
     params: { year, timezone },
   })
   if (error || !data) {
-    return { timezone, year, stats: {}, summaries: [], errors: [error || 'Failed to load wrapped'] }
+    return {
+      timezone,
+      year,
+      stats: {},
+      summaries: [],
+      tokenMetrics: {},
+      spendMetrics: {},
+      errors: [error || 'Failed to load wrapped'],
+    }
   }
   return {
     timezone: data.timezone || timezone,
     year: data.year || year,
     stats: data.stats || {},
     summaries: data.summaries || [],
+    tokenMetrics: data.token_metrics || {},
+    spendMetrics: data.spend_metrics || {},
     generatedAt: data.generated_at || '',
     errors: [],
   }
@@ -50,6 +60,8 @@ function WrappedContent({ config = {}, year }) {
     year: selectedYear,
     stats: {},
     summaries: [],
+    tokenMetrics: {},
+    spendMetrics: {},
     errors: [],
   })
 
@@ -97,42 +109,41 @@ function WrappedContent({ config = {}, year }) {
 
   return (
     <>
+      <div className="mb-6 flex items-center gap-2 border-b border-zinc-900 pb-4">
+        <button
+          type="button"
+          className="flex h-8 w-8 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300"
+          title="Previous year"
+          onClick={() => setSelectedYear((value) => value - 1)}
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <div className="border border-zinc-800 bg-zinc-950 px-3 py-1.5 font-mono text-xs tracking-[0.24em] text-zinc-300 uppercase">
+          {selectedYear}
+        </div>
+        <button
+          type="button"
+          className="flex h-8 w-8 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700"
+          title="Next year"
+          disabled={!canGoNext}
+          onClick={() => setSelectedYear((value) => Math.min(currentYear, value + 1))}
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+
       <section className="relative mb-6 overflow-hidden border border-sky-300/30 bg-sky-300/5 p-8">
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-4xl">
-            <div className="mb-4 text-[10px] tracking-[0.32em] text-sky-300 uppercase">
-              Annual telemetry package
-            </div>
-            <h2 className="text-4xl font-medium tracking-tight text-zinc-100 md:text-6xl">
-              {data.year} in code, compiled from your local archive.
-            </h2>
-            <p className="mt-5 max-w-2xl text-sm leading-6 text-zinc-500">
-              Active time, language gravity, AI-assisted momentum, and project peaks from the
-              Waka-compatible backend.
-            </p>
+        <div className="max-w-4xl">
+          <div className="mb-4 text-[10px] tracking-[0.32em] text-sky-300 uppercase">
+            Annual telemetry package
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="flex h-9 w-9 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300"
-              title="Previous year"
-              onClick={() => setSelectedYear((value) => value - 1)}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div className="border border-zinc-800 bg-zinc-950 px-4 py-2 font-mono text-xs tracking-[0.24em] text-zinc-300 uppercase">
-              wrapped --year={selectedYear}
-            </div>
-            <button
-              type="button"
-              className="flex h-9 w-9 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700"
-              title="Next year"
-              disabled={!canGoNext}
-              onClick={() => setSelectedYear((value) => Math.min(currentYear, value + 1))}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
+          <h2 className="text-4xl font-medium tracking-tight text-zinc-100 md:text-6xl">
+            {data.year} in code, compiled from your local archive.
+          </h2>
+          <p className="mt-5 max-w-2xl text-sm leading-6 text-zinc-500">
+            Active time, language gravity, AI-assisted momentum, and project peaks from the
+            Waka-compatible backend.
+          </p>
         </div>
       </section>
 

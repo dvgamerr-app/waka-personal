@@ -591,6 +591,54 @@ func parseCSVQuery(value string) []string {
 	return out
 }
 
+// tokenMetrics calculates token usage from stats
+func tokenMetrics(stats map[string]any) map[string]any {
+	inputTokens := toInt64(stats["ai_input_tokens"])
+	outputTokens := toInt64(stats["ai_output_tokens"])
+	totalTokens := inputTokens + outputTokens
+	return fiber.Map{
+		"total_tokens":  totalTokens,
+		"input_tokens":  inputTokens,
+		"output_tokens": outputTokens,
+	}
+}
+
+// spendMetrics calculates estimated spend from token usage
+// ponytail: simplified pricing (claude-3.5-sonnet: $3/$15 per MTok)
+func spendMetrics(tokens map[string]any) map[string]any {
+	inputTokens := toInt64(tokens["input_tokens"])
+	outputTokens := toInt64(tokens["output_tokens"])
+	totalTokens := inputTokens + outputTokens
+
+	// Claude 3.5 Sonnet pricing: $3 per M input, $15 per M output
+	inputCents := int64(float64(inputTokens) * 0.003 / 1000 * 100)
+	outputCents := int64(float64(outputTokens) * 0.015 / 1000 * 100)
+	totalCents := inputCents + outputCents
+
+	return fiber.Map{
+		"estimated_cents": totalCents,
+		"token_count":     totalTokens,
+		"input_cost":      inputCents,
+		"output_cost":     outputCents,
+	}
+}
+
+func toInt64(v any) int64 {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case int64:
+		return val
+	case int:
+		return int64(val)
+	case float64:
+		return int64(val)
+	default:
+		return 0
+	}
+}
+
 func dashboardHandler(query QueryReader) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		rangeParam := c.Query("range", "Last 7 Days")
@@ -688,12 +736,17 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			langRes.data = []map[string]any{}
 		}
 
+		tokens := tokenMetrics(statsRes.data)
+		spend := spendMetrics(tokens)
+
 		return c.JSON(fiber.Map{
 			"stats":              statsRes.data,
 			"summaries":          summariesRes.data,
 			"today":              todayRes.data,
 			"project_durations":  projRes.data,
 			"language_durations": langRes.data,
+			"token_metrics":      tokens,
+			"spend_metrics":      spend,
 			"errors":             apiErrors,
 		})
 	}
@@ -722,6 +775,7 @@ func liveDashboardHandler(query QueryReader) fiber.Handler {
 		todayCh := make(chan statsResult, 1)
 		projCh := make(chan listResult, 1)
 		langCh := make(chan listResult, 1)
+		editorCh := make(chan listResult, 1)
 
 		go func() {
 			v, e := query.StatusbarToday(c.Context(), now)
@@ -735,10 +789,15 @@ func liveDashboardHandler(query QueryReader) fiber.Handler {
 			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "language", Timezone: timezone})
 			langCh <- listResult{items, e}
 		}()
+		go func() {
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "editor", Timezone: timezone})
+			editorCh <- listResult{items, e}
+		}()
 
 		todayRes := <-todayCh
 		projRes := <-projCh
 		langRes := <-langCh
+		editorRes := <-editorCh
 
 		var apiErrors []string
 		if todayRes.err != nil {
@@ -750,6 +809,9 @@ func liveDashboardHandler(query QueryReader) fiber.Handler {
 		if langRes.err != nil {
 			apiErrors = append(apiErrors, langRes.err.Error())
 		}
+		if editorRes.err != nil {
+			apiErrors = append(apiErrors, editorRes.err.Error())
+		}
 
 		if todayRes.data == nil {
 			todayRes.data = map[string]any{}
@@ -760,6 +822,9 @@ func liveDashboardHandler(query QueryReader) fiber.Handler {
 		if langRes.data == nil {
 			langRes.data = []map[string]any{}
 		}
+		if editorRes.data == nil {
+			editorRes.data = []map[string]any{}
+		}
 
 		return c.JSON(fiber.Map{
 			"cached_at":          now.Format(time.RFC3339),
@@ -767,6 +832,7 @@ func liveDashboardHandler(query QueryReader) fiber.Handler {
 			"today":              todayRes.data,
 			"project_durations":  projRes.data,
 			"language_durations": langRes.data,
+			"editor_durations":   editorRes.data,
 			"errors":             apiErrors,
 		})
 	}
@@ -776,6 +842,15 @@ func insightsHandler(query QueryReader) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		timezone := c.Query("timezone", "UTC")
 		rangeParam := c.Query("range", "Last 7 Days")
+
+		stats, err := query.Stats(c.Context(), domain.StatsQueryParams{
+			Range:    rangeParam,
+			Timezone: timezone,
+		})
+		if err != nil {
+			return err
+		}
+
 		summaries, err := query.Summaries(c.Context(), domain.SummaryQueryParams{
 			Range:    rangeParam,
 			Timezone: timezone,
@@ -786,11 +861,18 @@ func insightsHandler(query QueryReader) fiber.Handler {
 		if summaries == nil {
 			summaries = []map[string]any{}
 		}
+
+		tokens := tokenMetrics(stats)
+		spend := spendMetrics(tokens)
+
 		return c.JSON(fiber.Map{
-			"timezone":     timezone,
-			"range":        rangeParam,
-			"summaries":    summaries,
-			"generated_at": time.Now().UTC().Format(time.RFC3339),
+			"timezone":      timezone,
+			"range":         rangeParam,
+			"summaries":     summaries,
+			"stats":         stats,
+			"token_metrics": tokens,
+			"spend_metrics": spend,
+			"generated_at":  time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }
@@ -817,12 +899,19 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 		if summaries == nil {
 			summaries = []map[string]any{}
 		}
+
+		stats := fiber.Map{}
+		tokens := tokenMetrics(stats)
+		spend := spendMetrics(tokens)
+
 		return c.JSON(fiber.Map{
-			"timezone":     timezone,
-			"year":         year,
-			"stats":        fiber.Map{},
-			"summaries":    summaries,
-			"generated_at": time.Now().UTC().Format(time.RFC3339),
+			"timezone":      timezone,
+			"year":          year,
+			"stats":         stats,
+			"summaries":     summaries,
+			"token_metrics": tokens,
+			"spend_metrics": spend,
+			"generated_at":  time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }
@@ -962,4 +1051,3 @@ func stringOrNil(value string) any {
 	}
 	return value
 }
-

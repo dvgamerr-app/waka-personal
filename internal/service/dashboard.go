@@ -159,6 +159,7 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	}
 
 	aiAdditions, aiDeletions, humanAdditions, humanDeletions := sumLineChanges(intervals)
+	aiInputTokens, aiOutputTokens := sumAITokens(intervals)
 	nowUTC := time.Now().UTC().Format(time.RFC3339)
 
 	return map[string]any{
@@ -174,6 +175,9 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 		"ai_deletions":                                          aiDeletions,
 		"human_additions":                                       humanAdditions,
 		"human_deletions":                                       humanDeletions,
+		"ai_input_tokens":                                       aiInputTokens,
+		"ai_output_tokens":                                      aiOutputTokens,
+		"ai_total_tokens":                                       aiInputTokens + aiOutputTokens,
 		"categories":                                            categories,
 		"projects":                                              projects,
 		"languages":                                             languages,
@@ -693,6 +697,19 @@ func sumLineChanges(intervals []heartbeatInterval) (int, int, int, int) {
 	}
 
 	return aiAdditions, aiDeletions, humanAdditions, humanDeletions
+}
+
+func sumAITokens(intervals []heartbeatInterval) (int64, int64) {
+	var inputTokens, outputTokens int64
+	for i := range intervals {
+		if intervals[i].record.AIInputTokens != nil {
+			inputTokens += *intervals[i].record.AIInputTokens
+		}
+		if intervals[i].record.AIOutputTokens != nil {
+			outputTokens += *intervals[i].record.AIOutputTokens
+		}
+	}
+	return inputTokens, outputTokens
 }
 
 func timeFieldsMap(totalSeconds float64) map[string]any {
