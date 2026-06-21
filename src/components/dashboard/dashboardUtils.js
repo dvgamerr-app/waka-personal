@@ -16,9 +16,25 @@ export const formatShortDuration = (seconds) => {
   const hours = Math.floor(total / 3600)
   const minutes = Math.floor((total % 3600) / 60)
 
-  if (hours > 0) return `${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`
   if (minutes > 0) return `${minutes}m`
   return `${total % 60}s`
+}
+
+export const formatTableDuration = (seconds) => {
+  const total = Math.max(0, Math.round(Number(seconds) || 0))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m`
+}
+
+export const normalizeWakaTime = (text) => {
+  if (!text) return text
+  return text
+    .replace(/(\d+)\s*hrs?/gi, (_, n) => `${n}h`)
+    .replace(/(\d+)\s*mins?/gi, (_, n) => `${n}m`)
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export const formatPercent = (value) => `${Math.round(Number(value) || 0)}%`
@@ -205,6 +221,7 @@ export const computeRangeStats = (summaries) => {
   const machineMap = new Map()
   const editorMap = new Map()
   const categoryMap = new Map()
+  const osMap = new Map()
 
   const accumulate = (map, items) => {
     normalizeItems(items).forEach((item) => {
@@ -223,12 +240,16 @@ export const computeRangeStats = (summaries) => {
         ai_deletions: 0,
         human_additions: 0,
         human_deletions: 0,
+        token_count: 0,
+        spend_cents: 0,
       }
       current.total_seconds += Number(item.total_seconds) || 0
       current.ai_additions += Number(item.ai_additions) || 0
       current.ai_deletions += Number(item.ai_deletions) || 0
       current.human_additions += Number(item.human_additions) || 0
       current.human_deletions += Number(item.human_deletions) || 0
+      current.token_count += Number(item.token_count) || 0
+      current.spend_cents += Number(item.spend_cents) || 0
       projectMap.set(name, current)
     })
   }
@@ -254,6 +275,7 @@ export const computeRangeStats = (summaries) => {
     accumulate(machineMap, day.machines)
     accumulate(editorMap, day.editors)
     accumulate(categoryMap, day.categories)
+    accumulate(osMap, day.operating_systems)
   }
 
   const activeDays = days.filter((d) => (Number(d.grand_total?.total_seconds) || 0) > 0).length
@@ -306,6 +328,8 @@ export const computeRangeStats = (summaries) => {
           total_changes: totalChanges,
           ai_percent: (aiChanges / changeTotal) * 100,
           human_percent: (humanChanges / changeTotal) * 100,
+          token_count: item.token_count || 0,
+          spend_cents: item.spend_cents || 0,
         }
       })
       .sort((a, b) => b.total_seconds - a.total_seconds)
@@ -327,6 +351,7 @@ export const computeRangeStats = (summaries) => {
     languages: toRanked(languageMap, totalSeconds),
     machines: toRanked(machineMap, totalSeconds),
     editors: toRanked(editorMap, totalSeconds),
+    operatingSystems: toRanked(osMap, totalSeconds),
     categories: Array.from(categoryMap.entries())
       .map(([name, total_seconds]) => ({
         name,

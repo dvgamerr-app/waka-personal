@@ -1,34 +1,36 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Activity, Code2, Cpu, Terminal, Zap } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
+import ThemeToggle from './ThemeToggle'
 import DateRangePicker from './DateRangePicker'
 import {
   buildTrendSeries,
   computeRangeStats,
   formatCount,
-  formatDayLabel,
   formatPercent,
   formatShortDuration,
   formatSpend,
+  formatTableDuration,
   normalizeItems,
+  normalizeWakaTime,
   topItems,
 } from './dashboardUtils.js'
 import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 
 const ACCENT = '#7dd3fc'
-const PANEL = 'border border-zinc-900 bg-zinc-950/80'
-const LABEL = 'text-[10px] font-semibold uppercase tracking-[0.28em] text-zinc-600'
+const PANEL = 'border border-border bg-card'
+const LABEL = 'text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground'
 
 const normalizeDashboardData = (data = {}, fallbackTimezone = 'UTC') => ({
   timezone: data.timezone || fallbackTimezone,
   stats: data.stats || {},
   summaries: data.summaries || [],
   today: data.today || {},
-  projectDurations: data.projectDurations || [],
-  languageDurations: data.languageDurations || [],
-  editorDurations: data.editor_durations || [],
-  tokenMetrics: data.token_metrics || {},
-  spendMetrics: data.spend_metrics || {},
+  projectDurations: data.projectDurations || data.project_durations || [],
+  languageDurations: data.languageDurations || data.language_durations || [],
+  editorDurations: data.editorDurations || data.editor_durations || [],
+  tokenMetrics: data.tokenMetrics || data.token_metrics || {},
+  spendMetrics: data.spendMetrics || data.spend_metrics || {},
   errors: Array.isArray(data.errors) ? data.errors : [],
 })
 
@@ -118,6 +120,17 @@ const dayName = (date) => {
   return new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' })
 }
 
+const formatBestDay = (date) => {
+  if (!date) return '--'
+  const d = new Date(`${date}T00:00:00`)
+  const dow = d.toLocaleDateString('en-US', { weekday: 'short' })
+  const mon = d.toLocaleDateString('en-US', { month: 'short' })
+  const day = d.getDate()
+  const n = day % 10
+  const suffix = day > 10 && day < 14 ? 'th' : n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'
+  return `${dow} ${mon} ${day}${suffix}`
+}
+
 const rangeDateText = (summaries) => {
   const days = normalizeItems(summaries)
   if (!days.length) return 'NO_RANGE'
@@ -203,20 +216,20 @@ const KpiPanel = ({ label, value, note, icon: Icon, accent = ACCENT }) => (
       <span className={LABEL}>{label}</span>
       {Icon && <Icon size={15} style={{ color: accent }} />}
     </div>
-    <div className="font-mono text-3xl leading-none font-medium text-zinc-100">{value}</div>
-    {note && <div className="mt-3 text-[11px] text-zinc-600">{note}</div>}
+    <div className="font-mono text-3xl leading-none font-medium text-foreground">{value}</div>
+    {note && <div className="mt-3 text-[11px] text-muted-foreground">{note}</div>}
   </section>
 )
 
 const SectionTitle = ({ children }) => (
-  <h2 className="mb-5 flex items-center gap-2 text-sm font-medium text-zinc-400">
-    <span className="h-1.5 w-1.5 bg-zinc-600" />
+  <h2 className="mb-5 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+    <span className="h-1.5 w-1.5 bg-muted-foreground" />
     {children}
   </h2>
 )
 
 const ProgressLine = ({ value = 0, accent = ACCENT }) => (
-  <div className="h-1.5 overflow-hidden bg-zinc-900">
+  <div className="h-1.5 overflow-hidden bg-muted">
     <div className="h-full" style={{ width: `${clampPercent(value)}%`, background: accent }} />
   </div>
 )
@@ -240,17 +253,17 @@ const DailyTrace = ({ series, title = 'DAILY_ACTIVITY_TRACE', showWeekday = true
                 className="flex min-w-0 flex-1 flex-col items-center gap-2"
               >
                 <span
-                  className={`font-mono text-[10px] tabular-nums ${isPeak ? 'text-sky-300' : 'text-zinc-600'}`}
+                  className={`font-mono text-[10px] tabular-nums ${isPeak ? 'text-sky-300' : 'text-muted-foreground'}`}
                 >
                   {formatShortDuration(day.totalSeconds)}
                 </span>
-                <div className="relative h-32 w-full overflow-hidden bg-zinc-900/60">
+                <div className="relative h-32 w-full overflow-hidden bg-muted/60">
                   <div
                     className={`absolute inset-x-0 bottom-0 ${isPeak ? 'bg-sky-300' : 'bg-sky-300/30'}`}
                     style={{ height: `${height}%` }}
                   />
                 </div>
-                <span className="truncate text-[10px] text-zinc-500 uppercase">
+                <span className="truncate text-[10px] text-muted-foreground uppercase">
                   {showWeekday ? dayName(day.date) || day.label : day.label}
                 </span>
               </div>
@@ -262,7 +275,7 @@ const DailyTrace = ({ series, title = 'DAILY_ACTIVITY_TRACE', showWeekday = true
   )
 }
 
-const AiSplit = ({ stats, topProject }) => {
+const AiSplit = ({ stats, topProject, rangeStats }) => {
   const percent = aiShare(stats)
   const humanPercent = Math.max(0, 100 - percent)
   const totalChanges = (Number(stats?.aiAdditions) || 0) + (Number(stats?.humanAdditions) || 0)
@@ -271,14 +284,14 @@ const AiSplit = ({ stats, topProject }) => {
     <section className={`${PANEL} p-5 lg:p-6`}>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-lg font-medium text-zinc-100">AI vs Human Logic Split</h2>
-          <p className="mt-1 max-w-[60ch] text-sm text-zinc-500">
+          <h2 className="text-lg font-medium text-foreground">AI vs Human Logic Split</h2>
+          <p className="mt-1 max-w-[60ch] text-sm text-muted-foreground">
             Distribution of line additions across the selected range, aligned with WakaTime
             heartbeat telemetry.
           </p>
         </div>
         <div className="text-right">
-          <span className="block text-[10px] tracking-[0.24em] text-zinc-600 uppercase">
+          <span className="block text-[10px] tracking-[0.24em] text-muted-foreground uppercase">
             Current Peak
           </span>
           <span className="font-mono text-sm font-medium text-sky-300">
@@ -287,7 +300,7 @@ const AiSplit = ({ stats, topProject }) => {
         </div>
       </div>
 
-      <div className="relative flex h-12 overflow-hidden border border-zinc-800 bg-zinc-900">
+      <div className="relative flex h-12 overflow-hidden border border-border bg-muted">
         <div
           className="flex h-full items-center px-4 text-xs font-semibold tracking-[0.18em] text-black uppercase"
           style={{ width: `${clampPercent(percent)}%`, background: ACCENT }}
@@ -295,18 +308,31 @@ const AiSplit = ({ stats, topProject }) => {
           AI Generated [{formatPercent(percent)}]
         </div>
         <div
-          className="flex h-full items-center justify-end bg-zinc-800 px-3 text-[10px] text-zinc-500 uppercase"
+          className="flex h-full items-center justify-end bg-secondary px-3 text-[10px] text-muted-foreground uppercase"
           style={{ width: `${clampPercent(humanPercent)}%` }}
         >
           Human
         </div>
       </div>
 
-      <div className="mt-6 grid gap-5 border-t border-zinc-900 pt-5 sm:grid-cols-2 xl:grid-cols-4">
-        <MicroMetric label="AI additions" value={formatCount(stats?.aiAdditions)} />
-        <MicroMetric label="Human additions" value={formatCount(stats?.humanAdditions)} />
-        <MicroMetric label="AI deletions" value={formatCount(stats?.aiDeletions)} />
-        <MicroMetric label="Top project" value={topProject?.name || 'No project'} />
+      <div className="mt-6 grid gap-5 border-t border-border pt-5 sm:grid-cols-2 xl:grid-cols-4">
+        <MicroMetric
+          label="Review Density"
+          value={`${formatPercent(percent)} · ${formatCount(totalChanges)} sessions`}
+        />
+        <MicroMetric
+          label="Human Follow-up"
+          value={`${formatPercent(humanPercent)} · ${formatCount(stats?.humanAdditions)} edits`}
+        />
+        <MicroMetric
+          label="Top Project"
+          value={
+            topProject
+              ? `${topProject.name} (${formatShortDuration(topProject.total_seconds)})`
+              : '-'
+          }
+        />
+        <MicroMetric label="Active Day" value={formatBestDay(rangeStats?.bestDay?.date)} />
       </div>
     </section>
   )
@@ -314,8 +340,8 @@ const AiSplit = ({ stats, topProject }) => {
 
 const MicroMetric = ({ label, value }) => (
   <div>
-    <span className="mb-1 block text-[10px] text-zinc-600 uppercase">{label}</span>
-    <span className="text-sm text-zinc-300">{metricText(value)}</span>
+    <span className="mb-1 block text-[10px] text-muted-foreground uppercase">{label}</span>
+    <span className="text-sm text-foreground">{metricText(value)}</span>
   </div>
 )
 
@@ -332,54 +358,67 @@ const buildProjectUrl = (name, summaries) => {
 
 const ProjectMetrics = ({ projects, summaries }) => {
   const rows = topItems(projects, 8)
+  const hasTokens = rows.some((p) => (p.token_count || 0) > 0)
+  const hasSpend = rows.some((p) => (p.spend_cents || 0) > 0)
 
   return (
     <section className={`${PANEL} p-5 lg:p-6`}>
-      <SectionTitle>PROJECTS</SectionTitle>
+      <SectionTitle>PROJECT_ENVIRONMENT_METRICS</SectionTitle>
       {rows.length === 0 ? (
         <EmptyState label="No project metrics available." />
       ) : (
         <div className="overflow-x-auto">
-          <div className="min-w-[980px]">
-            <div className="grid grid-cols-12 gap-4 border-b border-zinc-900 pb-2 text-[10px] tracking-[0.18em] text-zinc-600 uppercase">
+          <div className="min-w-[600px]">
+            <div className="grid grid-cols-12 gap-3 border-b border-border pb-2 text-[10px] tracking-[0.18em] text-muted-foreground uppercase">
               <div className="col-span-3">Project</div>
-              <div className="col-span-3 text-right">Time</div>
-              <div className="col-span-2 text-right">AI changes</div>
-              <div className="col-span-2 text-right">Human changes</div>
-              <div className="col-span-1 text-right">AI %</div>
-              <div className="col-span-1 text-right">Activity Share</div>
+              <div className="col-span-4">AI Density</div>
+              <div className="col-span-2 text-right">Time</div>
+              {hasTokens && <div className="col-span-1 text-right">Tokens</div>}
+              {hasSpend && <div className={hasTokens ? 'col-span-2 text-right' : 'col-span-3 text-right'}>Spend</div>}
+              {!hasTokens && !hasSpend && <div className="col-span-3 text-right">Activity</div>}
             </div>
-            <div className="divide-y divide-zinc-900/70">
+            <div className="divide-y divide-border/70">
               {rows.map((project) => {
                 const url = buildProjectUrl(project.name, summaries)
                 return (
                   <a
                     key={project.name}
                     href={url}
-                    className="grid grid-cols-12 items-center gap-4 py-3 text-[11px] transition-colors hover:bg-zinc-900/35"
+                    className="grid grid-cols-12 items-center gap-3 py-3 text-[11px] transition-colors hover:bg-muted/35"
                   >
-                    <div className="col-span-3 flex min-w-0 items-center gap-2 text-zinc-300">
-                      <span className="text-zinc-700">&gt;</span>
+                    <div className="col-span-3 flex min-w-0 items-center gap-2 text-foreground">
+                      <span className="text-muted-foreground">&gt;</span>
                       <span className="truncate">{project.name}</span>
                     </div>
-                    <div className="col-span-3 text-right font-mono text-zinc-400 tabular-nums">
-                      {project.text || formatShortDuration(project.total_seconds)}
-                    </div>
-                    <div className="col-span-2 text-right font-mono text-sky-300 tabular-nums">
-                      {formatCount(project.ai_changes)}
-                    </div>
-                    <div className="col-span-2 text-right font-mono text-zinc-400 tabular-nums">
-                      {formatCount(project.human_changes)}
-                    </div>
-                    <div className="col-span-1 text-right font-mono text-zinc-500 tabular-nums">
-                      {formatPercent(project.ai_percent)}
-                    </div>
-                    <div className="col-span-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-                      <ProgressLine value={project.percent} />
-                      <span className="text-right font-mono text-[10px] text-zinc-500">
-                        {formatPercent(project.percent)}
+                    <div className="col-span-4 flex items-center gap-2">
+                      <div className="h-1 flex-1 overflow-hidden bg-muted">
+                        <div
+                          className="h-full bg-sky-300"
+                          style={{ width: `${clampPercent(project.ai_percent)}%` }}
+                        />
+                      </div>
+                      <span className="shrink-0 font-mono text-[10px] text-sky-300 tabular-nums">
+                        {formatPercent(project.ai_percent)}
                       </span>
                     </div>
+                    <div className="col-span-2 text-right font-mono text-muted-foreground tabular-nums">
+                      {formatTableDuration(project.total_seconds)}
+                    </div>
+                    {hasTokens && (
+                      <div className="col-span-1 text-right font-mono text-muted-foreground tabular-nums">
+                        {project.token_count > 0 ? formatCount(project.token_count) : '-'}
+                      </div>
+                    )}
+                    {hasSpend && (
+                      <div className={`${hasTokens ? 'col-span-2' : 'col-span-3'} text-right font-mono text-muted-foreground tabular-nums`}>
+                        {project.spend_cents > 0 ? formatSpend(project.spend_cents) : '-'}
+                      </div>
+                    )}
+                    {!hasTokens && !hasSpend && (
+                      <div className="col-span-3 flex items-center justify-end gap-2">
+                        <ProgressLine value={project.percent} />
+                      </div>
+                    )}
                   </a>
                 )
               })}
@@ -405,8 +444,8 @@ const RankedList = ({ title, items, emptyLabel = 'No data available.' }) => {
           {rows.map((item) => (
             <div key={item.name} className="text-[11px]">
               <div className="mb-1 flex items-center justify-between gap-4">
-                <span className="truncate text-zinc-400">{item.name}</span>
-                <span className="shrink-0 font-mono text-zinc-500 tabular-nums">
+                <span className="truncate text-muted-foreground">{item.name}</span>
+                <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
                   {item.text || formatShortDuration(item.total_seconds)}
                 </span>
               </div>
@@ -423,7 +462,15 @@ const RankedList = ({ title, items, emptyLabel = 'No data available.' }) => {
 }
 
 const AgentStations = ({ machines, editors }) => {
-  const rows = topItems(machines?.length ? machines : editors, 4)
+  const rows = topItems(editors?.length ? editors : machines, 4)
+
+  const getStatus = (index) => {
+    if (index === 0)
+      return { label: 'Active', textColor: 'text-sky-300', dotClass: 'animate-pulse bg-sky-300' }
+    if (index === 1)
+      return { label: 'Standby', textColor: 'text-muted-foreground', dotClass: 'bg-zinc-700 dark:bg-zinc-700' }
+    return { label: 'Idle', textColor: 'text-muted-foreground/60', dotClass: 'bg-zinc-400 dark:bg-zinc-800' }
+  }
 
   return (
     <section className={`${PANEL} p-5`}>
@@ -432,43 +479,54 @@ const AgentStations = ({ machines, editors }) => {
         <EmptyState label="No machine stations online." />
       ) : (
         <div className="space-y-3">
-          {rows.map((station, index) => (
-            <div
-              key={station.name}
-              className={`border p-3 ${index === 0 ? 'border-sky-300/40 bg-sky-300/5' : 'border-zinc-900 bg-zinc-900/30'}`}
-            >
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="truncate text-[11px] font-semibold text-zinc-200">
-                  {station.name}
-                </span>
-                <span
-                  className={`flex items-center gap-1.5 text-[10px] tracking-[0.18em] uppercase ${index === 0 ? 'text-sky-300' : 'text-zinc-500'}`}
-                >
+          {rows.map((station, index) => {
+            const { label, textColor, dotClass } = getStatus(index)
+            return (
+              <div
+                key={station.name}
+                className={`border p-3 ${index === 0 ? 'border-sky-300/40 bg-sky-300/5' : 'border-border bg-muted/30'}`}
+              >
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="truncate text-[11px] font-semibold text-foreground">
+                    {station.name}
+                  </span>
                   <span
-                    className={`h-1.5 w-1.5 ${index === 0 ? 'animate-pulse bg-sky-300' : 'bg-zinc-700'}`}
-                  />
-                  {index === 0 ? 'Active' : 'Standby'}
-                </span>
+                    className={`flex items-center gap-1.5 text-[10px] tracking-[0.18em] uppercase ${textColor}`}
+                  >
+                    <span className={`h-1.5 w-1.5 ${dotClass}`} />
+                    {label}
+                  </span>
+                </div>
+                <div className="space-y-0.5 text-[10px] text-muted-foreground uppercase">
+                  <div>{formatCount(station.total_seconds)} Lines</div>
+                  <div>{formatPercent(station.percent)} Load</div>
+                </div>
               </div>
-              <div className="flex justify-between text-[10px] text-zinc-500 uppercase">
-                <span>{station.text || formatShortDuration(station.total_seconds)}</span>
-                <span>{formatPercent(station.percent)} load</span>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </section>
   )
 }
 
-const EditorUsage = ({ editors }) => {
+const osAbbr = (name) => {
+  if (name === 'macOS') return 'Mac'
+  if (name === 'Windows') return 'Win'
+  return name
+}
+
+const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
   const normalized = normalizeItems(editors).map((e) => ({
     name: e.editor || e.name || 'Unknown',
     total_seconds: e.duration || e.total_seconds || 0,
+    percent: e.percent,
   }))
   const rows = topItems(normalized, 4)
   const total = rows.reduce((sum, e) => sum + (Number(e.total_seconds) || 0), 0)
+  const osSplit = topItems(normalizeItems(operatingSystems), 3)
+    .map((os) => `${osAbbr(os.name)} ${formatPercent(os.percent)}`)
+    .join(' · ')
 
   return (
     <section className={`${PANEL} p-5`}>
@@ -476,29 +534,48 @@ const EditorUsage = ({ editors }) => {
       {rows.length === 0 ? (
         <EmptyState label="No editor data available." />
       ) : (
-        <div className="space-y-3">
-          {rows.map((editor) => (
-            <div key={editor.name} className="text-[11px]">
-              <div className="mb-1 flex items-center justify-between gap-4">
-                <span className="truncate text-zinc-400">{editor.name}</span>
-                <span className="shrink-0 font-mono text-zinc-500 tabular-nums">
-                  {formatShortDuration(editor.total_seconds)}
-                </span>
+        <>
+          <div className="space-y-3">
+            {rows.map((editor) => {
+              const pct = editor.percent ?? (total > 0 ? ((Number(editor.total_seconds) || 0) / total) * 100 : 0)
+              return (
+                <div key={editor.name} className="text-[11px]">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">{editor.name}</span>
+                    <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
+                      {formatShortDuration(editor.total_seconds)}
+                    </span>
+                    <span className="w-10 shrink-0 text-right font-mono text-muted-foreground tabular-nums">
+                      {formatPercent(pct)}
+                    </span>
+                  </div>
+                  <ProgressLine value={pct} accent="#7dd3fc99" />
+                </div>
+              )
+            })}
+          </div>
+          {(osSplit || machineCount != null) && (
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-[10px] text-muted-foreground">
+              <div>
+                <div className="mb-1 tracking-[0.18em] uppercase">OS Split</div>
+                <div>{osSplit || '–'}</div>
               </div>
-              <ProgressLine
-                value={total > 0 ? ((Number(editor.total_seconds) || 0) / total) * 100 : 0}
-                accent="#7dd3fc99"
-              />
+              <div>
+                <div className="mb-1 tracking-[0.18em] uppercase">Machines</div>
+                <div>{machineCount != null ? `${machineCount} node${machineCount === 1 ? '' : 's'} online` : '–'}</div>
+              </div>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </section>
   )
 }
 
 const EmptyState = ({ label }) => (
-  <div className="border border-dashed border-zinc-800 p-8 text-sm text-zinc-600">{label}</div>
+  <div className="border border-dashed border-border p-8 text-sm text-muted-foreground">
+    {label}
+  </div>
 )
 
 export default function Dashboard({ data = {}, config = {} }) {
@@ -626,11 +703,11 @@ function DashboardContent({ data, config }) {
   const topProjects = useMemo(() => topItems(rangeStats?.projects, 8), [rangeStats])
   const topLanguages = useMemo(() => topItems(rangeStats?.languages, 8), [rangeStats])
   const topMachines = useMemo(() => topItems(rangeStats?.machines, 6), [rangeStats])
-  const topEditors = useMemo(
-    () => topItems(rangeStats?.editors || stats.editors, 6),
-    [rangeStats, stats.editors]
-  )
-  const topCategories = useMemo(() => topItems(rangeStats?.categories, 6), [rangeStats])
+  const topEditors = useMemo(() => {
+    const items = rangeStats?.editors?.length ? rangeStats.editors : stats.editors
+    return topItems(items, 6)
+  }, [rangeStats, stats.editors])
+  const topOperatingSystems = useMemo(() => topItems(rangeStats?.operatingSystems, 5), [rangeStats])
 
   const totalAi = Number(rangeStats?.aiAdditions ?? stats.ai_additions) || 0
   const totalHuman = Number(rangeStats?.humanAdditions ?? stats.human_additions) || 0
@@ -661,22 +738,22 @@ function DashboardContent({ data, config }) {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 font-mono text-zinc-300 selection:bg-sky-300/30 selection:text-white">
-      <nav className="sticky top-0 z-50 border-b border-zinc-900 bg-zinc-950/85 backdrop-blur-sm">
+    <div className="min-h-screen bg-background font-mono text-foreground selection:bg-sky-300/30">
+      <nav className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-sm">
         <div className="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-4 px-4">
           <div className="flex min-w-0 items-center gap-6">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse bg-sky-300" />
-              <span className="text-sm font-semibold tracking-tight text-zinc-100">
+              <span className="text-sm font-semibold tracking-tight text-foreground">
                 WAKA_PERSONAL v2
               </span>
             </div>
-            <div className="hidden items-center gap-4 text-[11px] tracking-[0.24em] text-zinc-600 uppercase md:flex">
+            <div className="hidden items-center gap-4 text-[11px] tracking-[0.24em] text-muted-foreground uppercase md:flex">
               <span className="text-sky-300">Dashboard</span>
-              <a href="/insights" className="transition-colors hover:text-zinc-300">
+              <a href="/insights" className="transition-colors hover:text-foreground">
                 Insights
               </a>
-              <a href="/wrapped" className="transition-colors hover:text-zinc-300">
+              <a href="/wrapped" className="transition-colors hover:text-foreground">
                 Wrapped
               </a>
             </div>
@@ -688,6 +765,7 @@ function DashboardContent({ data, config }) {
                 {loading ? 'Syncing' : 'Live tick'}
               </span>
             )}
+            <ThemeToggle />
             <DateRangePicker value={selectedRange} onChange={handleRangeChange} />
           </div>
         </div>
@@ -696,19 +774,19 @@ function DashboardContent({ data, config }) {
       <main className="mx-auto max-w-[1600px] p-4 md:p-6 lg:p-8">
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-medium tracking-tight text-zinc-100 md:text-3xl">
+            <h1 className="text-2xl font-medium tracking-tight text-foreground md:text-3xl">
               <span className="text-sky-300">$</span> activity_overview
               <span className="ml-2 inline-block h-5 w-2 animate-pulse bg-sky-300 align-middle" />
             </h1>
-            <p className="mt-1 text-xs tracking-[0.22em] text-zinc-500 uppercase">
+            <p className="mt-1 text-xs tracking-[0.22em] text-muted-foreground uppercase">
               {rangeLabel} - daily refresh - timezone:{' '}
               {todayRange.timezone || dashData.timezone || fallbackTimezone}
             </p>
           </div>
-          <div className="text-right text-[10px] tracking-[0.22em] text-zinc-600 uppercase">
+          <div className="text-right text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
             <div>Range: {rangeDateText(summaries)}</div>
-            <div className="text-zinc-500">
-              Today: {today.grand_total?.text || '0s'}{' '}
+            <div className="text-muted-foreground">
+              Today: {normalizeWakaTime(today.grand_total?.text) || '0s'}{' '}
               <span className="text-sky-300">LIVE 60s</span>
             </div>
           </div>
@@ -724,13 +802,12 @@ function DashboardContent({ data, config }) {
 
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
           <KpiPanel
-            label="Active Time [range]"
-            value={
+            label="Active Time"
+            value={normalizeWakaTime(
               rangeStats?.humanReadableTotal ||
-              stats.human_readable_total_including_other_language ||
-              '-'
-            }
-            note={`Avg: ${rangeStats?.humanReadableDailyAvg || stats.human_readable_daily_average_including_other_language || '0s'} / active day`}
+              stats.human_readable_total_including_other_language
+            ) || '-'}
+            note={`Avg: ${normalizeWakaTime(rangeStats?.humanReadableDailyAvg || stats.human_readable_daily_average_including_other_language) || '0m'} / active day`}
             icon={Activity}
           />
           <KpiPanel
@@ -743,7 +820,7 @@ function DashboardContent({ data, config }) {
           <KpiPanel
             label="Active Days"
             value={`${activeDays}/${totalDays || 0}`}
-            note={`Best: ${rangeStats?.bestDay?.text || stats.best_day?.text || 'No peak day yet'}`}
+            note={`Best: ${normalizeWakaTime(rangeStats?.bestDay?.text || stats.best_day?.text) || 'No peak day yet'}`}
             icon={Terminal}
           />
           <KpiPanel
@@ -761,7 +838,7 @@ function DashboardContent({ data, config }) {
           />
           <KpiPanel
             label="Today"
-            value={today.grand_total?.text || '0s'}
+            value={normalizeWakaTime(today.grand_total?.text) || '0s'}
             note={liveProjectName ? `Project: ${liveProjectName}` : 'No focused project yet'}
             icon={Cpu}
           />
@@ -776,6 +853,7 @@ function DashboardContent({ data, config }) {
                 aiDeletions: rangeStats?.aiDeletions ?? stats.ai_deletions,
               }}
               topProject={topProjects[0]}
+              rangeStats={rangeStats}
             />
             <DailyTrace
               series={traceSeries}
@@ -787,7 +865,11 @@ function DashboardContent({ data, config }) {
 
           <aside className="col-span-12 space-y-6 lg:col-span-4">
             <AgentStations machines={topMachines} editors={topEditors} />
-            <EditorUsage editors={dashData.editorDurations || []} />
+            <EditorUsage
+              editors={topEditors.length ? topEditors : dashData.editorDurations || []}
+              operatingSystems={topOperatingSystems}
+              machineCount={topMachines.length}
+            />
             <RankedList
               title="LANGUAGE_INDEX"
               items={topLanguages}
@@ -796,24 +878,24 @@ function DashboardContent({ data, config }) {
           </aside>
         </div>
 
-        <footer className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border border-zinc-900 bg-zinc-950 p-4 text-[10px] text-zinc-600">
+        <footer className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border border-border bg-background p-4 text-[10px] text-muted-foreground">
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 animate-pulse bg-sky-300" />
-            <span className="text-zinc-500 uppercase">Node Status:</span>
+            <span className="text-muted-foreground uppercase">Node Status:</span>
             <span className="text-sky-300 uppercase">{liveStatus}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-zinc-500 uppercase">Live Project:</span>
-            <span className="text-zinc-300">{liveProjectName || 'local'}</span>
+            <span className="text-muted-foreground uppercase">Live Project:</span>
+            <span className="text-foreground">{liveProjectName || 'local'}</span>
           </div>
           <div className="flex items-center gap-2">
             <Code2 size={12} />
-            <span className="text-zinc-300">{liveLanguageName || 'No language'}</span>
+            <span className="text-foreground">{liveLanguageName || 'No language'}</span>
           </div>
           <div className="ml-auto flex gap-4">
             <span>API</span>
             <span>CONFIG</span>
-            <span className="text-zinc-800">-</span>
+            <span className="text-border">-</span>
             <span>LAST_REFRESH: {refreshTimeText(liveData.cachedAt)}</span>
           </div>
         </footer>
