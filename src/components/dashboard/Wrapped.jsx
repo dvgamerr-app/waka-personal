@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
 import {
   computeRangeStats,
@@ -13,7 +13,7 @@ import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 const PANEL = 'border border-zinc-900 bg-zinc-950/80'
 
 const SectionTitle = ({ children }) => (
-  <h2 className="mb-6 flex items-center gap-2 text-sm font-medium text-zinc-400">
+  <h2 className="mb-6 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400/80">
     <span className="h-1.5 w-1.5 bg-zinc-600" />
     {children}
   </h2>
@@ -64,15 +64,20 @@ function WrappedContent({ config = {}, year }) {
     spendMetrics: {},
     errors: [],
   })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
+    setLoading(true)
     loadWrapped({
       base: effectiveConfig.apiBase || '',
       timezone: fallbackTimezone,
       year: selectedYear,
     }).then((next) => {
-      if (active) setData(next)
+      if (active) {
+        setData(next)
+        setLoading(false)
+      }
     })
     return () => {
       active = false
@@ -112,33 +117,33 @@ function WrappedContent({ config = {}, year }) {
       <div className="mb-6 flex items-center gap-2 border-b border-zinc-900 pb-4">
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300"
+          className="flex h-11 w-11 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300"
           title="Previous year"
           onClick={() => setSelectedYear((value) => value - 1)}
         >
-          <ChevronLeft size={14} />
+          <ChevronLeft size={16} />
         </button>
         <div className="border border-zinc-800 bg-zinc-950 px-3 py-1.5 font-mono text-xs tracking-[0.24em] text-zinc-300 uppercase">
           {selectedYear}
         </div>
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700"
-          title="Next year"
+          className="flex h-11 w-11 items-center justify-center border border-zinc-800 text-zinc-400 transition-colors hover:border-sky-300/40 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700"
+          title={canGoNext ? 'Next year' : `${selectedYear} is the latest year`}
           disabled={!canGoNext}
           onClick={() => setSelectedYear((value) => Math.min(currentYear, value + 1))}
         >
-          <ChevronRight size={14} />
+          <ChevronRight size={16} />
         </button>
       </div>
 
       <section className="relative mb-6 overflow-hidden border border-sky-300/30 bg-sky-300/5 p-8">
         <div className="max-w-4xl">
-          <div className="mb-4 text-[10px] tracking-[0.32em] text-sky-300 uppercase">
+          <div className="mb-4 text-[11px] tracking-[0.32em] text-sky-300 uppercase">
             Annual telemetry package
           </div>
           <h2 className="text-4xl font-medium tracking-tight text-zinc-100 md:text-6xl">
-            {data.year} in code, compiled from your local archive.
+            {selectedYear} in code, compiled from your local archive.
           </h2>
           <p className="mt-5 max-w-2xl text-sm leading-6 text-zinc-500">
             Active time, language gravity, AI-assisted momentum, and project peaks from the
@@ -148,13 +153,13 @@ function WrappedContent({ config = {}, year }) {
       </section>
 
       {data.errors.length > 0 && (
-        <div className="mb-6 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
-          {data.errors.map((error) => (
-            <p key={error}>{error}</p>
-          ))}
+        <div className="mb-6 flex gap-3 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
+          <div>{data.errors.map((error) => <p key={error}>{error}</p>)}</div>
         </div>
       )}
 
+      <div className={`transition-opacity duration-200 ${loading ? 'opacity-50' : ''}`}>
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
           [
@@ -167,11 +172,11 @@ function WrappedContent({ config = {}, year }) {
           ['Top Project', topProject?.name || '-', topProject?.text || 'No project data'],
         ].map(([label, value, note]) => (
           <section key={label} className={`${PANEL} p-4`}>
-            <span className="text-[10px] tracking-[0.24em] text-zinc-500 uppercase">{label}</span>
+            <span className="text-[11px] tracking-[0.24em] text-zinc-500 uppercase">{label}</span>
             <div className="mt-1 font-mono text-3xl leading-none font-medium text-zinc-100">
               {value}
             </div>
-            <div className="mt-3 text-[11px] text-zinc-600">{note}</div>
+            <div className="mt-3 text-xs text-zinc-600">{note}</div>
           </section>
         ))}
       </div>
@@ -188,7 +193,7 @@ function WrappedContent({ config = {}, year }) {
                     key={month.label}
                     className="flex min-w-0 flex-1 flex-col items-center gap-2"
                   >
-                    <span className="font-mono text-[10px] text-zinc-600 tabular-nums">
+                    <span className="font-mono text-[11px] text-zinc-600 tabular-nums">
                       {Math.round(month.seconds / 3600)}h
                     </span>
                     <div className="relative h-36 w-full overflow-hidden bg-zinc-900/60">
@@ -197,7 +202,7 @@ function WrappedContent({ config = {}, year }) {
                         style={{ height: `${pct}%` }}
                       />
                     </div>
-                    <span className="text-[10px] text-zinc-500 uppercase">{month.label}</span>
+                    <span className="text-[11px] text-zinc-500 uppercase">{month.label}</span>
                   </div>
                 )
               })}
@@ -206,11 +211,14 @@ function WrappedContent({ config = {}, year }) {
 
           <section className={`${PANEL} p-5 lg:p-6`}>
             <SectionTitle>PROJECTS</SectionTitle>
+            {projects.length === 0 ? (
+              <div className="border border-dashed border-zinc-800 p-8 text-xs text-zinc-600">No project data for {selectedYear}.</div>
+            ) : (
             <div className="space-y-3">
               {projects.map((project) => (
                 <div
                   key={project.name}
-                  className="grid grid-cols-[minmax(0,1fr)_72px_64px] items-center gap-3 text-[11px]"
+                  className="grid grid-cols-[minmax(0,1fr)_72px_64px] items-center gap-3 text-xs"
                 >
                   <span className="truncate text-zinc-300">{project.name}</span>
                   <span className="text-right font-mono text-zinc-500">{project.text}</span>
@@ -220,15 +228,19 @@ function WrappedContent({ config = {}, year }) {
                 </div>
               ))}
             </div>
+            )}
           </section>
         </div>
 
         <aside className="col-span-12 space-y-6 lg:col-span-4">
           <section className={`${PANEL} p-5 lg:p-6`}>
             <SectionTitle>LANGUAGE_DISTRIBUTION</SectionTitle>
+            {languages.length === 0 ? (
+              <div className="border border-dashed border-zinc-800 p-8 text-xs text-zinc-600">No language data for {selectedYear}.</div>
+            ) : (
             <div className="space-y-3">
               {languages.map((language) => (
-                <div key={language.name} className="text-[11px]">
+                <div key={language.name} className="text-xs">
                   <div className="mb-1 flex justify-between gap-3">
                     <span className="truncate text-zinc-300">{language.name}</span>
                     <span className="font-mono text-zinc-500">
@@ -241,8 +253,10 @@ function WrappedContent({ config = {}, year }) {
                 </div>
               ))}
             </div>
+            )}
           </section>
         </aside>
+      </div>
       </div>
     </>
   )

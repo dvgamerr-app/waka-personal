@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, GitBranch, Search, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, GitBranch, Search, Zap } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
 import {
   buildTrendSeries,
@@ -13,7 +13,7 @@ import {
 import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 
 const PANEL = 'border border-zinc-900 bg-zinc-950/80'
-const LABEL = 'text-[10px] tracking-[0.24em] text-zinc-500 uppercase'
+const LABEL = 'text-[11px] tracking-[0.24em] text-zinc-500 uppercase'
 
 const Kpi = ({ label, value, note, icon: Icon }) => (
   <section className={`${PANEL} p-4`}>
@@ -22,12 +22,12 @@ const Kpi = ({ label, value, note, icon: Icon }) => (
       {Icon && <Icon size={15} className="text-sky-300" />}
     </div>
     <div className="font-mono text-3xl leading-none font-medium text-zinc-100">{value}</div>
-    <div className="mt-3 text-[11px] text-zinc-600">{note}</div>
+    <div className="mt-3 text-xs text-zinc-600">{note}</div>
   </section>
 )
 
 const SectionTitle = ({ children }) => (
-  <h2 className="mb-6 flex items-center gap-2 text-sm font-medium text-zinc-400">
+  <h2 className="mb-6 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400/80">
     <span className="h-1.5 w-1.5 bg-zinc-600" />
     {children}
   </h2>
@@ -111,12 +111,11 @@ function InsightsContent({ config = {} }) {
   const maxDay = Math.max(1, ...trend.map((day) => Number(day.totalSeconds) || 0))
 
   return (
-    <>
+    <div className={`transition-opacity duration-200 ${loading ? 'opacity-50' : ''}`}>
       {data.errors.length > 0 && (
-        <div className="mb-6 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
-          {data.errors.map((error) => (
-            <p key={error}>{error}</p>
-          ))}
+        <div className="mb-6 flex gap-3 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
+          <div>{data.errors.map((error) => <p key={error}>{error}</p>)}</div>
         </div>
       )}
 
@@ -137,13 +136,13 @@ function InsightsContent({ config = {} }) {
         />
         <Kpi
           label="AI Share"
-          value={formatPercent(aiPercent)}
+          value={loading ? '-' : formatPercent(aiPercent)}
           note={`${formatCount(aiTotal)} AI changes / ${formatCount(humanTotal)} human`}
           icon={Zap}
         />
         <Kpi
           label="AI Tokens"
-          value={formatCount(data.tokenMetrics?.total_tokens || 0)}
+          value={loading ? '-' : formatCount(data.tokenMetrics?.total_tokens || 0)}
           note={`${formatCount(data.tokenMetrics?.input_tokens || 0)} in`}
           icon={Zap}
         />
@@ -159,6 +158,9 @@ function InsightsContent({ config = {} }) {
         <div className="col-span-12 space-y-6 lg:col-span-8">
           <section className={`${PANEL} p-5 lg:p-6`}>
             <SectionTitle>ACTIVITY_HEATMAP // 7D</SectionTitle>
+            {trend.length === 0 ? (
+              <div className="border border-dashed border-zinc-800 p-8 text-xs text-zinc-600">No activity data in this range.</div>
+            ) : (
             <div className="flex h-52 items-end gap-2 md:gap-3">
               {trend.map((day) => {
                 const pct = Math.max(4, ((Number(day.totalSeconds) || 0) / maxDay) * 100)
@@ -167,7 +169,7 @@ function InsightsContent({ config = {} }) {
                     key={day.date || day.label}
                     className="flex min-w-0 flex-1 flex-col items-center gap-2"
                   >
-                    <span className="font-mono text-[10px] text-zinc-600 tabular-nums">
+                    <span className="font-mono text-[11px] text-zinc-600 tabular-nums">
                       {formatShortDuration(day.totalSeconds)}
                     </span>
                     <div className="relative h-36 w-full overflow-hidden bg-zinc-900/60">
@@ -176,21 +178,25 @@ function InsightsContent({ config = {} }) {
                         style={{ height: `${pct}%` }}
                       />
                     </div>
-                    <span className="truncate text-[10px] text-zinc-500 uppercase">
+                    <span className="truncate text-[11px] text-zinc-500 uppercase">
                       {day.label}
                     </span>
                   </div>
                 )
               })}
             </div>
+            )}
           </section>
 
           <section className={`${PANEL} p-5 lg:p-6`}>
             <SectionTitle>PROJECT_LEVERAGE</SectionTitle>
+            {projects.length === 0 ? (
+              <div className="border border-dashed border-zinc-800 p-8 text-xs text-zinc-600">No project data in this range.</div>
+            ) : (
             <div className="space-y-4">
               {projects.map((project) => (
                 <div key={project.name}>
-                  <div className="mb-1 flex justify-between gap-4 text-[11px]">
+                  <div className="mb-1 flex justify-between gap-4 text-xs">
                     <span className="truncate tracking-[0.18em] text-zinc-300 uppercase">
                       {project.name}
                     </span>
@@ -203,13 +209,17 @@ function InsightsContent({ config = {} }) {
                 </div>
               ))}
             </div>
+            )}
           </section>
         </div>
 
         <aside className="col-span-12 space-y-6 lg:col-span-4">
           <section className={`${PANEL} p-5 lg:p-6`}>
             <SectionTitle>LANGUAGE_INDEX</SectionTitle>
-            <div className="space-y-3 text-[11px]">
+            {languages.length === 0 ? (
+              <div className="border border-dashed border-zinc-800 p-8 text-xs text-zinc-600">No language data in this range.</div>
+            ) : (
+            <div className="space-y-3 text-xs">
               {languages.map((language) => (
                 <div key={language.name}>
                   <div className="mb-1 flex justify-between gap-3">
@@ -220,10 +230,11 @@ function InsightsContent({ config = {} }) {
                 </div>
               ))}
             </div>
+            )}
           </section>
         </aside>
       </div>
-    </>
+    </div>
   )
 }
 

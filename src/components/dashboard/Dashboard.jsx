@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Activity, Code2, Cpu, Terminal, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, Code2, Cpu, Terminal, Zap } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
 import ThemeToggle from './ThemeToggle'
 import DateRangePicker from './DateRangePicker'
@@ -18,8 +18,8 @@ import {
 import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 
 const ACCENT = '#7dd3fc'
-const PANEL = 'border border-border bg-card'
-const LABEL = 'text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground'
+const PANEL = 'border border-zinc-900 bg-zinc-950/80'
+const LABEL = 'text-[11px] tracking-[0.24em] text-zinc-500 uppercase'
 
 const normalizeDashboardData = (data = {}, fallbackTimezone = 'UTC') => ({
   timezone: data.timezone || fallbackTimezone,
@@ -216,20 +216,20 @@ const KpiPanel = ({ label, value, note, icon: Icon, accent = ACCENT }) => (
       <span className={LABEL}>{label}</span>
       {Icon && <Icon size={15} style={{ color: accent }} />}
     </div>
-    <div className="font-mono text-3xl leading-none font-medium text-foreground">{value}</div>
-    {note && <div className="mt-3 text-[11px] text-muted-foreground">{note}</div>}
+    <div className="font-mono text-3xl leading-none font-medium text-zinc-100">{value}</div>
+    {note && <div className="mt-3 text-xs text-zinc-600">{note}</div>}
   </section>
 )
 
 const SectionTitle = ({ children }) => (
-  <h2 className="mb-5 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-    <span className="h-1.5 w-1.5 bg-muted-foreground" />
+  <h2 className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400/80">
+    <span className="h-1.5 w-1.5 bg-zinc-600" />
     {children}
   </h2>
 )
 
 const ProgressLine = ({ value = 0, accent = ACCENT }) => (
-  <div className="h-1.5 overflow-hidden bg-muted">
+  <div className="h-1.5 overflow-hidden bg-zinc-900">
     <div className="h-full" style={{ width: `${clampPercent(value)}%`, background: accent }} />
   </div>
 )
@@ -253,17 +253,17 @@ const DailyTrace = ({ series, title = 'DAILY_ACTIVITY_TRACE', showWeekday = true
                 className="flex min-w-0 flex-1 flex-col items-center gap-2"
               >
                 <span
-                  className={`font-mono text-[10px] tabular-nums ${isPeak ? 'text-sky-300' : 'text-muted-foreground'}`}
+                  className={`font-mono text-[11px] tabular-nums ${isPeak ? 'text-sky-300' : 'text-zinc-600'}`}
                 >
                   {formatShortDuration(day.totalSeconds)}
                 </span>
-                <div className="relative h-32 w-full overflow-hidden bg-muted/60">
+                <div className="relative h-32 w-full overflow-hidden bg-zinc-900/60">
                   <div
                     className={`absolute inset-x-0 bottom-0 ${isPeak ? 'bg-sky-300' : 'bg-sky-300/30'}`}
                     style={{ height: `${height}%` }}
                   />
                 </div>
-                <span className="truncate text-[10px] text-muted-foreground uppercase">
+                <span className="truncate text-[11px] text-zinc-500 uppercase">
                   {showWeekday ? dayName(day.date) || day.label : day.label}
                 </span>
               </div>
@@ -286,14 +286,14 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
     <section className={`${PANEL} p-5 lg:p-6`}>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-lg font-medium text-foreground">AI vs Human Logic Split</h2>
-          <p className="mt-1 max-w-[60ch] text-sm text-muted-foreground">
+          <h2 className="text-lg font-medium text-zinc-100">AI vs Human Logic Split</h2>
+          <p className="mt-1 max-w-[60ch] text-sm text-zinc-500">
             Distribution of line additions across the selected range, aligned with WakaTime
             heartbeat telemetry.
           </p>
         </div>
         <div className="text-right">
-          <span className="block text-[10px] tracking-[0.24em] text-muted-foreground uppercase">
+          <span className="block text-[11px] tracking-[0.24em] text-zinc-500 uppercase">
             Current Peak
           </span>
           <span className="font-mono text-sm font-medium text-sky-300">
@@ -302,22 +302,22 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
         </div>
       </div>
 
-      <div className="relative flex h-12 overflow-hidden border border-border bg-muted">
+      <div className="relative flex h-12 overflow-hidden border border-zinc-900 bg-zinc-900">
+        <div className="h-full" style={{ width: `${clampPercent(percent)}%`, background: ACCENT }} />
         <div
-          className="flex h-full items-center px-4 text-xs font-semibold tracking-[0.18em] text-black uppercase"
-          style={{ width: `${clampPercent(percent)}%`, background: ACCENT }}
-        >
-          AI Generated [{formatPercent(percent)}]
-        </div>
-        <div
-          className="flex h-full items-center justify-end bg-secondary px-3 text-[10px] text-muted-foreground uppercase"
+          className="flex h-full items-center justify-end bg-zinc-800 px-3 text-[11px] text-zinc-500 uppercase"
           style={{ width: `${clampPercent(humanPercent)}%` }}
         >
           Human
         </div>
+        <div className="pointer-events-none absolute inset-0 flex items-center px-4 text-xs font-semibold tracking-[0.18em] uppercase">
+          <span className={percent >= 15 ? 'text-black' : 'text-sky-300'}>
+            AI [{formatPercent(percent)}]
+          </span>
+        </div>
       </div>
 
-      <div className="mt-6 grid gap-5 border-t border-border pt-5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-6 grid gap-5 border-t border-zinc-900 pt-5 sm:grid-cols-2 xl:grid-cols-4">
         <MicroMetric
           label="Review Density"
           value={`${formatPercent(percent)} · ${formatCount(totalChanges)} sessions`}
@@ -342,8 +342,8 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
 
 const MicroMetric = ({ label, value }) => (
   <div>
-    <span className="mb-1 block text-[10px] text-muted-foreground uppercase">{label}</span>
-    <span className="text-sm text-foreground">{metricText(value)}</span>
+    <span className="mb-1 block text-[11px] text-zinc-500 uppercase">{label}</span>
+    <span className="text-sm text-zinc-300">{metricText(value)}</span>
   </div>
 )
 
@@ -371,7 +371,7 @@ const ProjectMetrics = ({ projects, summaries }) => {
       ) : (
         <div className="overflow-x-auto">
           <div className="min-w-[600px]">
-            <div className="grid grid-cols-12 gap-3 border-b border-border pb-2 text-[10px] tracking-[0.18em] text-muted-foreground uppercase">
+            <div className="grid grid-cols-12 gap-3 border-b border-zinc-900 pb-2 text-[11px] tracking-[0.18em] text-zinc-500 uppercase">
               <div className="col-span-3">Project</div>
               <div className="col-span-4">AI Density</div>
               <div className="col-span-2 text-right">Time</div>
@@ -379,40 +379,40 @@ const ProjectMetrics = ({ projects, summaries }) => {
               {hasSpend && <div className={hasTokens ? 'col-span-2 text-right' : 'col-span-3 text-right'}>Spend</div>}
               {!hasTokens && !hasSpend && <div className="col-span-3 text-right">Activity</div>}
             </div>
-            <div className="divide-y divide-border/70">
+            <div className="divide-y divide-zinc-900/70">
               {rows.map((project) => {
                 const url = buildProjectUrl(project.name, summaries)
                 return (
                   <a
                     key={project.name}
                     href={url}
-                    className="grid grid-cols-12 items-center gap-3 py-3 text-[11px] transition-colors hover:bg-muted/35"
+                    className="grid grid-cols-12 items-center gap-3 py-3 text-xs transition-colors hover:bg-zinc-900/35"
                   >
-                    <div className="col-span-3 flex min-w-0 items-center gap-2 text-foreground">
-                      <span className="text-muted-foreground">&gt;</span>
+                    <div className="col-span-3 flex min-w-0 items-center gap-2 text-zinc-300">
+                      <span className="text-zinc-600">&gt;</span>
                       <span className="truncate">{project.name}</span>
                     </div>
                     <div className="col-span-4 flex items-center gap-2">
-                      <div className="h-1 flex-1 overflow-hidden bg-muted">
+                      <div className="h-1 flex-1 overflow-hidden bg-zinc-900">
                         <div
                           className="h-full bg-sky-300"
                           style={{ width: `${clampPercent(project.ai_percent)}%` }}
                         />
                       </div>
-                      <span className="shrink-0 font-mono text-[10px] text-sky-300 tabular-nums">
+                      <span className="shrink-0 font-mono text-[11px] text-sky-300 tabular-nums">
                         {formatPercent(project.ai_percent)}
                       </span>
                     </div>
-                    <div className="col-span-2 text-right font-mono text-muted-foreground tabular-nums">
+                    <div className="col-span-2 text-right font-mono text-zinc-500 tabular-nums">
                       {formatTableDuration(project.total_seconds)}
                     </div>
                     {hasTokens && (
-                      <div className="col-span-1 text-right font-mono text-muted-foreground tabular-nums">
+                      <div className="col-span-1 text-right font-mono text-zinc-500 tabular-nums">
                         {project.token_count > 0 ? formatCount(project.token_count) : '-'}
                       </div>
                     )}
                     {hasSpend && (
-                      <div className={`${hasTokens ? 'col-span-2' : 'col-span-3'} text-right font-mono text-muted-foreground tabular-nums`}>
+                      <div className={`${hasTokens ? 'col-span-2' : 'col-span-3'} text-right font-mono text-zinc-500 tabular-nums`}>
                         {project.spend_cents > 0 ? formatSpend(project.spend_cents) : '-'}
                       </div>
                     )}
@@ -444,10 +444,10 @@ const RankedList = ({ title, items, emptyLabel = 'No data available.' }) => {
       ) : (
         <div className="space-y-3">
           {rows.map((item) => (
-            <div key={item.name} className="text-[11px]">
+            <div key={item.name} className="text-xs">
               <div className="mb-1 flex items-center justify-between gap-4">
-                <span className="truncate text-muted-foreground">{item.name}</span>
-                <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
+                <span className="truncate text-zinc-300">{item.name}</span>
+                <span className="shrink-0 font-mono text-zinc-500 tabular-nums">
                   {item.text || formatShortDuration(item.total_seconds)}
                 </span>
               </div>
@@ -470,8 +470,8 @@ const AgentStations = ({ aiModels }) => {
     if (index === 0)
       return { label: 'Active', textColor: 'text-sky-300', dotClass: 'animate-pulse bg-sky-300' }
     if (index === 1)
-      return { label: 'Standby', textColor: 'text-muted-foreground', dotClass: 'bg-zinc-500 dark:bg-zinc-500' }
-    return { label: 'Idle', textColor: 'text-muted-foreground/60', dotClass: 'bg-zinc-600 dark:bg-zinc-700' }
+      return { label: 'Standby', textColor: 'text-zinc-500', dotClass: 'bg-zinc-500' }
+    return { label: 'Idle', textColor: 'text-zinc-600', dotClass: 'bg-zinc-700' }
   }
 
   return (
@@ -486,20 +486,20 @@ const AgentStations = ({ aiModels }) => {
             return (
               <div
                 key={station.name}
-                className={`border p-3 ${index === 0 ? 'border-sky-300/40 bg-sky-300/5' : 'border-border bg-muted/30'}`}
+                className={`border p-3 ${index === 0 ? 'border-sky-300/40 bg-sky-300/5' : 'border-zinc-900 bg-zinc-900/30'}`}
               >
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="truncate text-[11px] font-semibold text-foreground">
+                  <span className="truncate text-xs font-semibold text-zinc-100">
                     {station.name}
                   </span>
                   <span
-                    className={`flex items-center gap-1.5 text-[10px] tracking-[0.18em] uppercase ${textColor}`}
+                    className={`flex items-center gap-1.5 text-[11px] tracking-[0.18em] uppercase ${textColor}`}
                   >
                     <span className={`h-1.5 w-1.5 ${dotClass}`} />
                     {label}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 text-[10px] text-muted-foreground uppercase">
+                <div className="grid grid-cols-2 text-[11px] text-zinc-500 uppercase">
                   <div>{station.lines > 0 ? `${formatCount(station.lines)} Lines` : formatShortDuration(station.total_seconds)}</div>
                   <div className="text-right">{formatPercent(station.percent)} Load</div>
                 </div>
@@ -541,13 +541,13 @@ const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
             {rows.map((editor) => {
               const pct = editor.percent ?? (total > 0 ? ((Number(editor.total_seconds) || 0) / total) * 100 : 0)
               return (
-                <div key={editor.name} className="text-[11px]">
+                <div key={editor.name} className="text-xs">
                   <div className="mb-1 flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">{editor.name}</span>
-                    <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
+                    <span className="min-w-0 flex-1 truncate text-zinc-300">{editor.name}</span>
+                    <span className="shrink-0 font-mono text-zinc-500 tabular-nums">
                       {formatShortDuration(editor.total_seconds)}
                     </span>
-                    <span className="w-10 shrink-0 text-right font-mono text-muted-foreground tabular-nums">
+                    <span className="w-10 shrink-0 text-right font-mono text-zinc-500 tabular-nums">
                       {formatPercent(pct)}
                     </span>
                   </div>
@@ -557,7 +557,7 @@ const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
             })}
           </div>
           {(osSplit || machineCount != null) && (
-            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-[10px] text-muted-foreground">
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-zinc-900 pt-4 text-[11px] text-zinc-500">
               <div>
                 <div className="mb-1 tracking-[0.18em] uppercase">OS Split</div>
                 <div>{osSplit || '–'}</div>
@@ -575,7 +575,7 @@ const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
 }
 
 const EmptyState = ({ label }) => (
-  <div className="border border-dashed border-border p-8 text-sm text-muted-foreground">
+  <div className="border border-dashed border-zinc-800 p-8 text-sm text-zinc-600">
     {label}
   </div>
 )
@@ -764,29 +764,34 @@ function DashboardContent({ config }) {
   }
 
   return (
-    <div className="min-h-screen bg-background font-mono text-foreground selection:bg-sky-300/30">
-      <nav className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-sm">
+    <div className="min-h-screen bg-zinc-950 font-mono text-zinc-100 selection:bg-sky-300/30">
+      <nav className="sticky top-0 z-50 border-b border-zinc-900 bg-zinc-950/85 backdrop-blur-sm">
+        <div className="md:hidden flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-500 uppercase">
+          <span className="text-sky-300">Dashboard</span>
+          <a href="/insights" className="transition-colors hover:text-zinc-100">Insights</a>
+          <a href="/wrapped" className="transition-colors hover:text-zinc-100">Wrapped</a>
+        </div>
         <div className="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-4 px-4">
           <div className="flex min-w-0 items-center gap-6">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse bg-sky-300" />
-              <span className="text-sm font-semibold tracking-tight text-foreground">
+              <span className="text-sm font-semibold tracking-tight text-zinc-100">
                 WAKA_PERSONAL v2
               </span>
             </div>
-            <div className="hidden items-center gap-4 text-[11px] tracking-[0.24em] text-muted-foreground uppercase md:flex">
+            <div className="hidden items-center gap-4 text-xs tracking-[0.24em] text-zinc-500 uppercase md:flex">
               <span className="text-sky-300">Dashboard</span>
-              <a href="/insights" className="transition-colors hover:text-foreground">
+              <a href="/insights" className="transition-colors hover:text-zinc-100">
                 Insights
               </a>
-              <a href="/wrapped" className="transition-colors hover:text-foreground">
+              <a href="/wrapped" className="transition-colors hover:text-zinc-100">
                 Wrapped
               </a>
             </div>
           </div>
           <div className="flex items-center gap-3">
             {(loading || liveLoading) && (
-              <span className="hidden items-center gap-2 text-[10px] tracking-[0.22em] text-sky-300 uppercase sm:flex">
+              <span className="hidden items-center gap-2 text-[11px] tracking-[0.22em] text-zinc-500 uppercase sm:flex">
                 <span className="h-1.5 w-1.5 animate-pulse bg-sky-300" />
                 {loading ? 'Syncing' : 'Live tick'}
               </span>
@@ -797,21 +802,21 @@ function DashboardContent({ config }) {
         </div>
       </nav>
 
-      <main className="mx-auto max-w-[1600px] p-4 md:p-6 lg:p-8">
+      <main className={`mx-auto max-w-[1600px] p-4 md:p-6 lg:p-8 transition-opacity duration-200 ${loading ? 'opacity-50' : ''}`}>
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-medium tracking-tight text-foreground md:text-3xl">
+            <h1 className="text-2xl font-medium tracking-tight text-zinc-100 md:text-3xl">
               <span className="text-sky-300">$</span> activity_overview
               <span className="ml-2 inline-block h-5 w-2 animate-pulse bg-sky-300 align-middle" />
             </h1>
-            <p className="mt-1 text-xs tracking-[0.22em] text-muted-foreground uppercase">
+            <p className="mt-1 text-xs tracking-[0.22em] text-zinc-500 uppercase">
               {rangeLabel} - daily refresh - timezone:{' '}
               {todayRange.timezone || dashData.timezone || fallbackTimezone}
             </p>
           </div>
-          <div className="text-right text-[10px] tracking-[0.22em] text-muted-foreground uppercase">
+          <div className="text-right text-[11px] tracking-[0.22em] text-zinc-500 uppercase">
             <div>Range: {rangeDateText(summaries)}</div>
-            <div className="text-muted-foreground">
+            <div className="text-zinc-500">
               Today: {normalizeWakaTime(today.grand_total?.text) || '0s'}{' '}
               <span className="text-sky-300">LIVE 60s</span>
             </div>
@@ -819,10 +824,9 @@ function DashboardContent({ config }) {
         </header>
 
         {errors.length > 0 && (
-          <div className="mb-6 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
-            {errors.map((error, i) => (
-              <p key={i}>{error}</p>
-            ))}
+          <div className="mb-6 flex gap-3 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
+            <div>{errors.map((error, i) => <p key={i}>{error}</p>)}</div>
           </div>
         )}
 
@@ -904,19 +908,19 @@ function DashboardContent({ config }) {
           </aside>
         </div>
 
-        <footer className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border border-border bg-background p-4 text-[10px] text-muted-foreground">
+        <footer className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border border-zinc-900 bg-zinc-950 p-4 text-[11px] text-zinc-500">
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 animate-pulse bg-sky-300" />
-            <span className="text-muted-foreground uppercase">Node Status:</span>
+            <span className="text-zinc-500 uppercase">Node Status:</span>
             <span className="text-sky-300 uppercase">{liveStatus}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground uppercase">Live Project:</span>
-            <span className="text-foreground">{liveProjectName || 'local'}</span>
+            <span className="text-zinc-500 uppercase">Live Project:</span>
+            <span className="text-zinc-300">{liveProjectName || 'local'}</span>
           </div>
           <div className="flex items-center gap-2">
             <Code2 size={12} />
-            <span className="text-foreground">{liveLanguageName || 'No language'}</span>
+            <span className="text-zinc-300">{liveLanguageName || 'No language'}</span>
           </div>
           <div className="ml-auto flex gap-4">
             <span>API</span>

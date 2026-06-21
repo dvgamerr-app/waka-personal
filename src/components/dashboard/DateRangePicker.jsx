@@ -166,7 +166,7 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange, initi
               )}
             </div>
 
-            <div className="overflow-x-auto p-4">
+            <div className="overflow-x-auto p-2">
               <Calendar
                 mode="range"
                 numberOfMonths={2}
