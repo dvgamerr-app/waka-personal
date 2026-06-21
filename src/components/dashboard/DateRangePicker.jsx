@@ -121,14 +121,14 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
       </PopoverTrigger>
 
       <PopoverContent align="end" sideOffset={10} className="w-[min(96vw,760px)] gap-0 p-0">
-        <div className="grid gap-0 md:grid-cols-[230px_minmax(0,1fr)]">
+        <div className="grid gap-4 md:grid-cols-[230px_minmax(0,1fr)]">
           <div className="border-border border-b p-4 md:border-r md:border-b-0">
             <PopoverHeader className="mb-4 gap-2">
-              <PopoverTitle className="text-sm tracking-[0.24em] uppercase">
-                Range Presets
+              <PopoverTitle className="text-xs font-semibold text-muted-foreground">
+                Presets
               </PopoverTitle>
-              <PopoverDescription>
-                Use a quick preset or lock a custom date window from the calendar.
+              <PopoverDescription className="text-xs">
+                Quick options or custom range.
               </PopoverDescription>
             </PopoverHeader>
 
@@ -142,7 +142,7 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
                     key={preset}
                     type="button"
                     variant={isActive ? 'secondary' : 'ghost'}
-                    className="justify-between px-3 py-2 text-left text-xs font-semibold tracking-[0.22em] uppercase"
+                    className="justify-between px-3 py-2 text-left text-xs font-medium"
                     onClick={() => selectPreset(preset)}
                   >
                     <span className="truncate">{preset}</span>
@@ -155,16 +155,18 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
 
           <div className="flex min-w-0 flex-col">
             <div className="border-border border-b p-4">
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.35em] uppercase">
+              <p className="text-muted-foreground text-xs font-semibold">
                 Custom Range
               </p>
               <p className="mt-2 text-sm font-medium">{draftLabel}</p>
-              <p className="text-muted-foreground mt-1 text-xs">
-                Pick a start and end date, then apply the range.
-              </p>
+              {!hasCompleteRange && (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Select both dates to continue.
+                </p>
+              )}
             </div>
 
-            <div className="overflow-x-auto p-2">
+            <div className="overflow-x-auto p-4">
               <Calendar
                 mode="range"
                 numberOfMonths={2}
@@ -176,19 +178,17 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
             </div>
 
             <div className="border-border grid gap-3 border-t p-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-              <div className="text-muted-foreground min-w-0 text-xs">
-                {hasCompleteRange ? (
+              <div className="min-w-0 text-xs">
+                {hasCompleteRange && (
                   <>
-                    <span className="text-foreground font-medium">
+                    <span className="font-medium">
                       {format(draftRange.from, 'MMM d, yyyy')}
                     </span>
-                    <span className="mx-2">to</span>
-                    <span className="text-foreground font-medium">
+                    <span className="text-muted-foreground mx-2">→</span>
+                    <span className="font-medium">
                       {format(draftRange.to, 'MMM d, yyyy')}
                     </span>
                   </>
-                ) : (
-                  'Select both dates to apply a custom range.'
                 )}
               </div>
               <Button
@@ -199,8 +199,14 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
               >
                 {customRange ? 'Reset' : 'Clear'}
               </Button>
-              <Button type="button" size="sm" onClick={applyCustom} disabled={!hasCompleteRange}>
-                Apply Range
+              <Button
+                type="button"
+                size="sm"
+                onClick={applyCustom}
+                disabled={!hasCompleteRange}
+                className="font-medium"
+              >
+                Apply
               </Button>
             </div>
           </div>

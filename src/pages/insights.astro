@@ -1,0 +1,21 @@
+---
+import Layout from '@/layouts/Layout.astro'
+import SyntaxShell from '@/components/dashboard/SyntaxShell.astro'
+import Insights from '@/components/dashboard/Insights'
+
+const dashboardConfig = {
+  apiBase: (import.meta.env.PUBLIC_API_BASE || '').replace(/\/$/, ''),
+  timezone: import.meta.env.PUBLIC_APP_TIMEZONE || import.meta.env.APP_TIMEZONE || 'UTC',
+}
+---
+
+<Layout title="Waka Personal Insights">
+  <SyntaxShell
+    active="insights"
+    command="insights --window=7d"
+    subtitle="Pattern Analysis - Behavioral Telemetry - API backed"
+    meta={['Source: /api/v2/insights', `Timezone: ${dashboardConfig.timezone}`]}
+  >
+    <Insights client:load config={dashboardConfig} />
+  </SyntaxShell>
+</Layout>

@@ -25,7 +25,14 @@ export const formatPercent = (value) => `${Math.round(Number(value) || 0)}%`
 
 export const formatCount = (value) => {
   const n = Math.round(Number(value) || 0)
-  if (n >= 1000) return `${Math.round(n / 1000)}K`
+  if (n >= 1000000) {
+    const compact = n / 1000000
+    return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/\.0$/, '')}M`
+  }
+  if (n >= 1000) {
+    const compact = n / 1000
+    return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/\.0$/, '')}K`
+  }
   return String(n)
 }
 
@@ -94,7 +101,8 @@ export const buildTrendSeries = (summaries) => {
   })
 }
 
-export const buildTimelineRows = (durations, key, start, end) => {  const windowStart = new Date(start || 0).getTime() / 1000
+export const buildTimelineRows = (durations, key, start, end) => {
+  const windowStart = new Date(start || 0).getTime() / 1000
   const windowEnd = new Date(end || 0).getTime() / 1000
   const windowSize = Math.max(1, windowEnd - windowStart)
   const grouped = new Map()
@@ -188,6 +196,7 @@ export const computeRangeStats = (summaries) => {
   const projectMap = new Map()
   const languageMap = new Map()
   const machineMap = new Map()
+  const editorMap = new Map()
   const categoryMap = new Map()
 
   const accumulate = (map, items) => {
@@ -195,6 +204,25 @@ export const computeRangeStats = (summaries) => {
       const name = item.name || item.machine_name_id || 'Unknown'
       const sec = Number(item.total_seconds) || 0
       map.set(name, (map.get(name) || 0) + sec)
+    })
+  }
+
+  const accumulateProject = (items) => {
+    normalizeItems(items).forEach((item) => {
+      const name = item.name || 'Unknown'
+      const current = projectMap.get(name) || {
+        total_seconds: 0,
+        ai_additions: 0,
+        ai_deletions: 0,
+        human_additions: 0,
+        human_deletions: 0,
+      }
+      current.total_seconds += Number(item.total_seconds) || 0
+      current.ai_additions += Number(item.ai_additions) || 0
+      current.ai_deletions += Number(item.ai_deletions) || 0
+      current.human_additions += Number(item.human_additions) || 0
+      current.human_deletions += Number(item.human_deletions) || 0
+      projectMap.set(name, current)
     })
   }
 
@@ -214,18 +242,27 @@ export const computeRangeStats = (summaries) => {
       }
     }
 
-    accumulate(projectMap, day.projects)
+    accumulateProject(day.projects)
     accumulate(languageMap, day.languages)
     accumulate(machineMap, day.machines)
+    accumulate(editorMap, day.editors)
     accumulate(categoryMap, day.categories)
   }
 
   const activeDays = days.filter((d) => (Number(d.grand_total?.total_seconds) || 0) > 0).length
   const dailyAvgSeconds = activeDays > 0 ? Math.round(totalSeconds / activeDays) : 0
-  const categoryTotal = Math.max(1, Array.from(categoryMap.values()).reduce((s, v) => s + v, 0))
+  const categoryTotal = Math.max(
+    1,
+    Array.from(categoryMap.values()).reduce((s, v) => s + v, 0)
+  )
 
   const toRanked = (map, grandTotal) => {
-    const total = grandTotal || Math.max(1, Array.from(map.values()).reduce((s, v) => s + v, 0))
+    const total =
+      grandTotal ||
+      Math.max(
+        1,
+        Array.from(map.values()).reduce((s, v) => s + v, 0)
+      )
     return Array.from(map.entries())
       .map(([name, total_seconds]) => ({
         name,
@@ -233,6 +270,37 @@ export const computeRangeStats = (summaries) => {
         percent: (total_seconds / total) * 100,
         text: formatShortDuration(total_seconds),
       }))
+      .sort((a, b) => b.total_seconds - a.total_seconds)
+  }
+
+  const toProjectRanked = (map, grandTotal) => {
+    const total = Math.max(1, grandTotal || 0)
+    return Array.from(map.entries())
+      .map(([name, item]) => {
+        const totalChanges =
+          Number(item.ai_additions) +
+          Number(item.ai_deletions) +
+          Number(item.human_additions) +
+          Number(item.human_deletions)
+        const aiChanges = Number(item.ai_additions) + Number(item.ai_deletions)
+        const humanChanges = Number(item.human_additions) + Number(item.human_deletions)
+        const changeTotal = Math.max(1, aiChanges + humanChanges)
+        return {
+          name,
+          total_seconds: item.total_seconds,
+          percent: (item.total_seconds / total) * 100,
+          text: formatShortDuration(item.total_seconds),
+          ai_additions: item.ai_additions,
+          ai_deletions: item.ai_deletions,
+          human_additions: item.human_additions,
+          human_deletions: item.human_deletions,
+          ai_changes: aiChanges,
+          human_changes: humanChanges,
+          total_changes: totalChanges,
+          ai_percent: (aiChanges / changeTotal) * 100,
+          human_percent: (humanChanges / changeTotal) * 100,
+        }
+      })
       .sort((a, b) => b.total_seconds - a.total_seconds)
   }
 
@@ -248,9 +316,10 @@ export const computeRangeStats = (summaries) => {
     aiDeletions,
     humanAdditions,
     humanDeletions,
-    projects: toRanked(projectMap, totalSeconds),
+    projects: toProjectRanked(projectMap, totalSeconds),
     languages: toRanked(languageMap, totalSeconds),
     machines: toRanked(machineMap, totalSeconds),
+    editors: toRanked(editorMap, totalSeconds),
     categories: Array.from(categoryMap.entries())
       .map(([name, total_seconds]) => ({
         name,

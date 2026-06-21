@@ -1,34 +1,23 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Activity } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Activity, Code2, Cpu, Terminal, Zap } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
 import ThemeToggle from './ThemeToggle'
-import StatCard from './StatCard'
-import DailyTrendChart from './DailyTrendChart'
-import TimelineChart from './TimelineChart'
-import DeltaBars from './DeltaBars'
-import BreakdownCard from './BreakdownCard'
 import DateRangePicker from './DateRangePicker'
 import {
-  buildDailyBreakdownRows,
-  buildDeltaSeries,
-  buildTimelineRows,
   buildTrendSeries,
   computeRangeStats,
   formatCount,
   formatDayLabel,
+  formatPercent,
+  formatShortDuration,
   normalizeItems,
-  palette,
   topItems,
 } from './dashboardUtils.js'
+import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 
-const detectTimezone = (fallback = 'UTC') => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || fallback
-  } catch (_) {
-    return fallback
-  }
-}
+const ACCENT = '#7dd3fc'
+const PANEL = 'border border-zinc-900 bg-zinc-950/80'
+const LABEL = 'text-[10px] font-semibold uppercase tracking-[0.28em] text-zinc-600'
 
 const normalizeDashboardData = (data = {}, fallbackTimezone = 'UTC') => ({
   timezone: data.timezone || fallbackTimezone,
@@ -40,44 +29,23 @@ const normalizeDashboardData = (data = {}, fallbackTimezone = 'UTC') => ({
   errors: Array.isArray(data.errors) ? data.errors : [],
 })
 
-const buildApiUrl = (base, path, params = {}, apiKey = '') => {
-  const root = base || window.location.origin
-  const url = new URL(path, root)
-  for (const [key, value] of Object.entries(params)) {
-    if (value != null && value !== '') {
-      url.searchParams.set(key, String(value))
-    }
-  }
-  if (apiKey) {
-    url.searchParams.set('api_key', apiKey)
-  }
-  return base ? url.toString() : `${url.pathname}${url.search}`
-}
+const normalizeLiveData = (data = {}) => ({
+  cachedAt: data.cached_at || '',
+  status: data.status || 'synchronized',
+  today: data.today || {},
+  projectDurations: data.project_durations || [],
+  languageDurations: data.language_durations || [],
+  errors: Array.isArray(data.errors) ? data.errors : [],
+})
 
-const fetchJson = async ({ base, path, params, apiKey }) => {
-  try {
-    const res = await fetch(buildApiUrl(base, path, params, apiKey))
-    if (!res.ok) {
-      return { data: null, error: `${path} returned ${res.status}` }
-    }
-    return { data: await res.json(), error: null }
-  } catch (error) {
-    return {
-      data: null,
-      error: `${path} failed: ${error instanceof Error ? error.message : 'request failed'}`,
-    }
-  }
-}
-
-const fetchDashboardData = async ({ base, apiKey, timezone, range, start, end }) => {
+const fetchDashboardData = async ({ base, timezone, range, start, end }) => {
   const selectedRange = range || 'Last 7 Days'
   const params = start && end ? { start, end, timezone } : { range: selectedRange, timezone }
 
   const { data, error } = await fetchJson({
     base,
-    path: '/api/v1/users/current/dashboard',
+    path: '/api/v2/dashboard',
     params,
-    apiKey,
   })
 
   if (error || !data) {
@@ -103,7 +71,391 @@ const fetchDashboardData = async ({ base, apiKey, timezone, range, start, end })
   }
 }
 
-// Wrap with ThemeProvider so the React island owns its own theme context
+const fetchLiveData = async ({ base, timezone }) => {
+  const { data, error } = await fetchJson({
+    base,
+    path: '/api/v2/live',
+    params: { timezone },
+  })
+
+  if (error || !data) {
+    return {
+      cachedAt: new Date().toISOString(),
+      status: 'degraded',
+      today: {},
+      projectDurations: [],
+      languageDurations: [],
+      errors: [error || 'Failed to load live data'],
+    }
+  }
+
+  return normalizeLiveData(data)
+}
+
+const clampPercent = (value, fallback = 0) => Math.max(0, Math.min(100, Number(value) || fallback))
+
+const aiShare = (stats) => {
+  const ai = Number(stats?.aiAdditions) || 0
+  const human = Number(stats?.humanAdditions) || 0
+  const total = ai + human
+  return total > 0 ? (ai / total) * 100 : 0
+}
+
+const metricText = (value, fallback = '-') => (value == null || value === '' ? fallback : value)
+
+const dayName = (date) => {
+  if (!date) return '--'
+  return new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' })
+}
+
+const rangeDateText = (summaries) => {
+  const days = normalizeItems(summaries)
+  if (!days.length) return 'NO_RANGE'
+  const first = days[0]?.range?.date
+  const last = days[days.length - 1]?.range?.date
+  return `${first || '----'} -> ${last || '----'}`
+}
+
+const buildMonthlyTraceSeries = (summaries) => {
+  const buckets = new Map()
+
+  normalizeItems(summaries).forEach((day) => {
+    const date = day.range?.date || ''
+    const month = date.slice(0, 7)
+    if (!month) return
+
+    const current = buckets.get(month) || {
+      date: `${month}-01`,
+      label: new Date(`${month}-01T00:00:00`).toLocaleDateString('en-US', {
+        month: 'short',
+      }),
+      totalSeconds: 0,
+    }
+    current.totalSeconds += Number(day.grand_total?.total_seconds) || 0
+    buckets.set(month, current)
+  })
+
+  return Array.from(buckets.values()).map((month) => ({
+    ...month,
+    totalText: formatShortDuration(month.totalSeconds),
+  }))
+}
+
+const buildHourlyTraceSeries = (durations, timezone) => {
+  const hours = Array.from({ length: 24 }, (_, hour) => ({
+    date: `hour-${hour}`,
+    label: String(hour).padStart(2, '0'),
+    totalSeconds: 0,
+  }))
+
+  normalizeItems(durations).forEach((item) => {
+    const start = Number(item.time) || 0
+    const duration = Number(item.duration) || 0
+    if (start <= 0 || duration <= 0) return
+
+    const hour = Number(
+      new Date(start * 1000).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        hour12: false,
+        hourCycle: 'h23',
+        timeZone: timezone || 'UTC',
+      })
+    )
+    if (Number.isNaN(hour) || !hours[hour]) return
+    hours[hour].totalSeconds += duration
+  })
+
+  return hours.map((hour) => ({
+    ...hour,
+    totalText: formatShortDuration(hour.totalSeconds),
+  }))
+}
+
+const isSingleDayRange = ({ range, summaries }) => {
+  if (range === 'Today' || range === 'Yesterday') return true
+  const days = normalizeItems(summaries).filter((day) => day.range?.date)
+  return days.length === 1
+}
+
+const refreshTimeText = (value) => {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) {
+    return '--:--:--'
+  }
+  return date.toLocaleTimeString('en-US', { hour12: false })
+}
+
+const hasObjectData = (value) => value && Object.keys(value).length > 0
+
+const KpiPanel = ({ label, value, note, icon: Icon, accent = ACCENT }) => (
+  <section className={`${PANEL} p-4`}>
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <span className={LABEL}>{label}</span>
+      {Icon && <Icon size={15} style={{ color: accent }} />}
+    </div>
+    <div className="font-mono text-3xl leading-none font-medium text-zinc-100">{value}</div>
+    {note && <div className="mt-3 text-[11px] text-zinc-600">{note}</div>}
+  </section>
+)
+
+const SectionTitle = ({ children }) => (
+  <h2 className="mb-5 flex items-center gap-2 text-sm font-medium text-zinc-400">
+    <span className="h-1.5 w-1.5 bg-zinc-600" />
+    {children}
+  </h2>
+)
+
+const ProgressLine = ({ value = 0, accent = ACCENT }) => (
+  <div className="h-1.5 overflow-hidden bg-zinc-900">
+    <div className="h-full" style={{ width: `${clampPercent(value)}%`, background: accent }} />
+  </div>
+)
+
+const DailyTrace = ({ series, title = 'DAILY_ACTIVITY_TRACE', showWeekday = true }) => {
+  const maxSeconds = Math.max(1, ...series.map((day) => Number(day.totalSeconds) || 0))
+
+  return (
+    <section className={`${PANEL} p-5 lg:p-6`}>
+      <SectionTitle>{title}</SectionTitle>
+      {series.length === 0 ? (
+        <EmptyState label="No activity trace in this range." />
+      ) : (
+        <div className="flex h-48 items-end gap-2 md:gap-3">
+          {series.map((day) => {
+            const height = Math.max(3, ((Number(day.totalSeconds) || 0) / maxSeconds) * 100)
+            const isPeak = height >= 99
+            return (
+              <div
+                key={day.date || day.label}
+                className="flex min-w-0 flex-1 flex-col items-center gap-2"
+              >
+                <span
+                  className={`font-mono text-[10px] tabular-nums ${isPeak ? 'text-sky-300' : 'text-zinc-600'}`}
+                >
+                  {formatShortDuration(day.totalSeconds)}
+                </span>
+                <div className="relative h-32 w-full overflow-hidden bg-zinc-900/60">
+                  <div
+                    className={`absolute inset-x-0 bottom-0 ${isPeak ? 'bg-sky-300' : 'bg-sky-300/30'}`}
+                    style={{ height: `${height}%` }}
+                  />
+                </div>
+                <span className="truncate text-[10px] text-zinc-500 uppercase">
+                  {showWeekday ? dayName(day.date) || day.label : day.label}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const AiSplit = ({ stats, topProject }) => {
+  const percent = aiShare(stats)
+  const humanPercent = Math.max(0, 100 - percent)
+  const totalChanges = (Number(stats?.aiAdditions) || 0) + (Number(stats?.humanAdditions) || 0)
+
+  return (
+    <section className={`${PANEL} p-5 lg:p-6`}>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-medium text-zinc-100">AI vs Human Logic Split</h2>
+          <p className="mt-1 max-w-[60ch] text-sm text-zinc-500">
+            Distribution of line additions across the selected range, aligned with WakaTime
+            heartbeat telemetry.
+          </p>
+        </div>
+        <div className="text-right">
+          <span className="block text-[10px] tracking-[0.24em] text-zinc-600 uppercase">
+            Current Peak
+          </span>
+          <span className="font-mono text-sm font-medium text-sky-300">
+            {formatCount(totalChanges)} LOC
+          </span>
+        </div>
+      </div>
+
+      <div className="relative flex h-12 overflow-hidden border border-zinc-800 bg-zinc-900">
+        <div
+          className="flex h-full items-center px-4 text-xs font-semibold tracking-[0.18em] text-black uppercase"
+          style={{ width: `${clampPercent(percent)}%`, background: ACCENT }}
+        >
+          AI Generated [{formatPercent(percent)}]
+        </div>
+        <div
+          className="flex h-full items-center justify-end bg-zinc-800 px-3 text-[10px] text-zinc-500 uppercase"
+          style={{ width: `${clampPercent(humanPercent)}%` }}
+        >
+          Human
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-5 border-t border-zinc-900 pt-5 sm:grid-cols-2 xl:grid-cols-4">
+        <MicroMetric label="AI additions" value={formatCount(stats?.aiAdditions)} />
+        <MicroMetric label="Human additions" value={formatCount(stats?.humanAdditions)} />
+        <MicroMetric label="AI deletions" value={formatCount(stats?.aiDeletions)} />
+        <MicroMetric label="Top project" value={topProject?.name || 'No project'} />
+      </div>
+    </section>
+  )
+}
+
+const MicroMetric = ({ label, value }) => (
+  <div>
+    <span className="mb-1 block text-[10px] text-zinc-600 uppercase">{label}</span>
+    <span className="text-sm text-zinc-300">{metricText(value)}</span>
+  </div>
+)
+
+const buildProjectUrl = (name, summaries) => {
+  const days = normalizeItems(summaries)
+  const start = days[0]?.range?.date
+  const end = days[days.length - 1]?.range?.date
+  const params = new URLSearchParams()
+  if (start) params.set('start', start)
+  if (end) params.set('end', end)
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  return `https://wakatime.com/projects/${encodeURIComponent(name)}${suffix}`
+}
+
+const ProjectMetrics = ({ projects, summaries }) => {
+  const rows = topItems(projects, 8)
+
+  return (
+    <section className={`${PANEL} p-5 lg:p-6`}>
+      <SectionTitle>PROJECTS</SectionTitle>
+      {rows.length === 0 ? (
+        <EmptyState label="No project metrics available." />
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="min-w-[980px]">
+            <div className="grid grid-cols-12 gap-4 border-b border-zinc-900 pb-2 text-[10px] tracking-[0.18em] text-zinc-600 uppercase">
+              <div className="col-span-3">Project</div>
+              <div className="col-span-2 text-right">Time</div>
+              <div className="col-span-2 text-right">AI changes</div>
+              <div className="col-span-2 text-right">Human changes</div>
+              <div className="col-span-1 text-right">AI %</div>
+              <div className="col-span-2 text-right">Activity Share</div>
+            </div>
+            <div className="divide-y divide-zinc-900/70">
+              {rows.map((project) => {
+                const url = buildProjectUrl(project.name, summaries)
+                return (
+                  <a
+                    key={project.name}
+                    href={url}
+                    className="grid grid-cols-12 items-center gap-4 py-3 text-[11px] transition-colors hover:bg-zinc-900/35"
+                  >
+                    <div className="col-span-3 flex min-w-0 items-center gap-2 text-zinc-300">
+                      <span className="text-zinc-700">&gt;</span>
+                      <span className="truncate">{project.name}</span>
+                    </div>
+                    <div className="col-span-2 text-right font-mono text-zinc-400 tabular-nums">
+                      {project.text || formatShortDuration(project.total_seconds)}
+                    </div>
+                    <div className="col-span-2 text-right font-mono text-sky-300 tabular-nums">
+                      {formatCount(project.ai_changes)}
+                    </div>
+                    <div className="col-span-2 text-right font-mono text-zinc-400 tabular-nums">
+                      {formatCount(project.human_changes)}
+                    </div>
+                    <div className="col-span-1 text-right font-mono text-zinc-500 tabular-nums">
+                      {formatPercent(project.ai_percent)}
+                    </div>
+                    <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_42px] items-center gap-2">
+                      <ProgressLine value={project.percent} />
+                      <span className="text-right font-mono text-[10px] text-zinc-500">
+                        {formatPercent(project.percent)}
+                      </span>
+                    </div>
+                  </a>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+const RankedList = ({ title, items, emptyLabel = 'No data available.' }) => {
+  const rows = topItems(items, 8)
+  const max = Math.max(1, ...rows.map((row) => Number(row.total_seconds) || 0))
+
+  return (
+    <section className={`${PANEL} p-5`}>
+      <SectionTitle>{title}</SectionTitle>
+      {rows.length === 0 ? (
+        <EmptyState label={emptyLabel} />
+      ) : (
+        <div className="space-y-3">
+          {rows.map((item) => (
+            <div key={item.name} className="text-[11px]">
+              <div className="mb-1 flex items-center justify-between gap-4">
+                <span className="truncate text-zinc-400">{item.name}</span>
+                <span className="shrink-0 font-mono text-zinc-500 tabular-nums">
+                  {item.text || formatShortDuration(item.total_seconds)}
+                </span>
+              </div>
+              <ProgressLine
+                value={((Number(item.total_seconds) || 0) / max) * 100}
+                accent="#7dd3fc99"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const AgentStations = ({ machines, editors }) => {
+  const rows = topItems(machines?.length ? machines : editors, 4)
+
+  return (
+    <section className={`${PANEL} p-5`}>
+      <SectionTitle>AGENT_STATIONS</SectionTitle>
+      {rows.length === 0 ? (
+        <EmptyState label="No machine stations online." />
+      ) : (
+        <div className="space-y-3">
+          {rows.map((station, index) => (
+            <div
+              key={station.name}
+              className={`border p-3 ${index === 0 ? 'border-sky-300/40 bg-sky-300/5' : 'border-zinc-900 bg-zinc-900/30'}`}
+            >
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="truncate text-[11px] font-semibold text-zinc-200">
+                  {station.name}
+                </span>
+                <span
+                  className={`flex items-center gap-1.5 text-[10px] tracking-[0.18em] uppercase ${index === 0 ? 'text-sky-300' : 'text-zinc-500'}`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 ${index === 0 ? 'animate-pulse bg-sky-300' : 'bg-zinc-700'}`}
+                  />
+                  {index === 0 ? 'Active' : 'Standby'}
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px] text-zinc-500 uppercase">
+                <span>{station.text || formatShortDuration(station.total_seconds)}</span>
+                <span>{formatPercent(station.percent)} load</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const EmptyState = ({ label }) => (
+  <div className="border border-dashed border-zinc-800 p-8 text-sm text-zinc-600">{label}</div>
+)
+
 export default function Dashboard({ data = {}, config = {} }) {
   return (
     <ThemeProvider>
@@ -113,7 +465,9 @@ export default function Dashboard({ data = {}, config = {} }) {
 }
 
 function DashboardContent({ data, config }) {
-  const fallbackTimezone = config.timezone || detectTimezone()
+  const runtimeConfig = readRuntimeConfig()
+  const effectiveConfig = { ...config, ...runtimeConfig }
+  const fallbackTimezone = effectiveConfig.timezone || detectTimezone()
   const hasInitialData =
     Object.keys(data.stats || {}).length > 0 ||
     (data.summaries || []).length > 0 ||
@@ -122,7 +476,16 @@ function DashboardContent({ data, config }) {
     (data.languageDurations || []).length > 0
 
   const [dashData, setDashData] = useState(() => normalizeDashboardData(data, fallbackTimezone))
+  const [liveData, setLiveData] = useState(() =>
+    normalizeLiveData({
+      today: data.today || {},
+      project_durations: data.projectDurations || [],
+      language_durations: data.languageDurations || [],
+      cached_at: '',
+    })
+  )
   const [loading, setLoading] = useState(false)
+  const [liveLoading, setLiveLoading] = useState(false)
   const [selectedRange, setSelectedRange] = useState('Last 7 Days')
 
   const fetchDashboard = async ({ range, start, end }) => {
@@ -130,14 +493,20 @@ function DashboardContent({ data, config }) {
     try {
       const timezone = dashData.timezone || fallbackTimezone
       const nextData = await fetchDashboardData({
-        base: config.apiBase || '',
-        apiKey: config.apiKey || '',
+        base: effectiveConfig.apiBase || '',
         timezone,
         range,
         start,
         end,
       })
       setDashData(nextData)
+      setLiveData((prev) => ({
+        ...prev,
+        today: nextData.today,
+        projectDurations: nextData.projectDurations,
+        languageDurations: nextData.languageDurations,
+        errors: [],
+      }))
     } catch (error) {
       setDashData((prev) => ({
         ...prev,
@@ -148,6 +517,27 @@ function DashboardContent({ data, config }) {
     }
   }
 
+  const refreshLive = async () => {
+    setLiveLoading(true)
+    try {
+      const timezone = dashData.timezone || fallbackTimezone
+      const nextLive = await fetchLiveData({
+        base: effectiveConfig.apiBase || '',
+        timezone,
+      })
+      setLiveData(nextLive)
+    } catch (error) {
+      setLiveData((prev) => ({
+        ...prev,
+        cachedAt: new Date().toISOString(),
+        status: 'degraded',
+        errors: [error instanceof Error ? error.message : 'Failed to load live data'],
+      }))
+    } finally {
+      setLiveLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (hasInitialData) {
       return
@@ -155,64 +545,69 @@ function DashboardContent({ data, config }) {
     fetchDashboard({ range: selectedRange })
   }, [])
 
+  useEffect(() => {
+    refreshLive()
+    const intervalID = window.setInterval(refreshLive, 60_000)
+    return () => window.clearInterval(intervalID)
+  }, [dashData.timezone, fallbackTimezone, effectiveConfig.apiBase])
+
   const stats = dashData.stats || {}
   const summaries = useMemo(() => normalizeItems(dashData.summaries), [dashData.summaries])
-  const today = dashData.today || {}
-  const errors = useMemo(() => normalizeItems(dashData.errors), [dashData.errors])
+  const today = hasObjectData(liveData.today) ? liveData.today : dashData.today || {}
+  const liveProjects = liveData.projectDurations.length
+    ? liveData.projectDurations
+    : dashData.projectDurations || []
+  const liveLanguages = liveData.languageDurations.length
+    ? liveData.languageDurations
+    : dashData.languageDurations || []
+  const errors = useMemo(
+    () => normalizeItems([...(dashData.errors || []), ...(liveData.errors || [])]),
+    [dashData.errors, liveData.errors]
+  )
   const todayRange = today.range || {}
 
-  const isMultiDay = summaries.length > 7
   const trendSeries = useMemo(() => buildTrendSeries(summaries), [summaries])
-  const deltaSeries = useMemo(() => buildDeltaSeries(summaries), [summaries])
-  const hasDeltaData = useMemo(
+  const monthlyTraceSeries = useMemo(() => buildMonthlyTraceSeries(summaries), [summaries])
+  const hourlyTraceSeries = useMemo(
     () =>
-      deltaSeries.some(
-        (d) =>
-          d.aiAdditions > 0 || d.aiDeletions > 0 || d.humanAdditions > 0 || d.humanDeletions > 0
+      buildHourlyTraceSeries(
+        dashData.projectDurations,
+        todayRange.timezone || dashData.timezone || fallbackTimezone
       ),
-    [deltaSeries]
-  )
-  const projectRows = useMemo(
-    () =>
-      isMultiDay
-        ? buildDailyBreakdownRows(summaries, 'projects')
-        : buildTimelineRows(dashData.projectDurations, 'project', todayRange.start, todayRange.end),
-    [isMultiDay, summaries, dashData.projectDurations, todayRange.start, todayRange.end]
-  )
-  const languageRows = useMemo(
-    () =>
-      isMultiDay
-        ? buildDailyBreakdownRows(summaries, 'languages')
-        : buildTimelineRows(
-            dashData.languageDurations,
-            'language',
-            todayRange.start,
-            todayRange.end
-          ),
-    [isMultiDay, summaries, dashData.languageDurations, todayRange.start, todayRange.end]
-  )
-  const timelineAxisLabels = useMemo(
-    () => (isMultiDay ? summaries.map((day) => formatDayLabel(day.range?.date)) : null),
-    [isMultiDay, summaries]
+    [dashData.projectDurations, todayRange.timezone, dashData.timezone, fallbackTimezone]
   )
   const rangeStats = useMemo(() => computeRangeStats(summaries), [summaries])
 
-  const topProjects = useMemo(() => topItems(rangeStats?.projects, 6), [rangeStats])
-  const topLanguages = useMemo(() => topItems(rangeStats?.languages, 6), [rangeStats])
+  const topProjects = useMemo(() => topItems(rangeStats?.projects, 8), [rangeStats])
+  const topLanguages = useMemo(() => topItems(rangeStats?.languages, 8), [rangeStats])
   const topMachines = useMemo(() => topItems(rangeStats?.machines, 6), [rangeStats])
-  const topCategories = useMemo(
-    () =>
-      topItems(rangeStats?.categories, 6).map((item, index) => ({
-        ...item,
-        color: palette[index % palette.length],
-      })),
-    [rangeStats]
+  const topEditors = useMemo(
+    () => topItems(rangeStats?.editors || stats.editors, 6),
+    [rangeStats, stats.editors]
   )
+  const topCategories = useMemo(() => topItems(rangeStats?.categories, 6), [rangeStats])
 
-  const topProject = topProjects[0]
-  const topLanguage = topLanguages[0]
-  const topMachine = topMachines[0]
+  const totalAi = Number(rangeStats?.aiAdditions ?? stats.ai_additions) || 0
+  const totalHuman = Number(rangeStats?.humanAdditions ?? stats.human_additions) || 0
+  const aiPercent = aiShare({ aiAdditions: totalAi, humanAdditions: totalHuman })
+  const activeDays = rangeStats?.activeDays ?? stats.days_minus_holidays ?? 0
+  const totalDays = rangeStats?.totalDays ?? stats.days_including_holidays ?? summaries.length
   const rangeLabel = selectedRange === 'Custom Range' ? 'custom range' : selectedRange.toLowerCase()
+  const traceIsMonthly = selectedRange === 'Last Year'
+  const traceIsHourly = isSingleDayRange({ range: selectedRange, summaries })
+  const traceSeries = traceIsHourly
+    ? hourlyTraceSeries
+    : traceIsMonthly
+      ? monthlyTraceSeries
+      : trendSeries
+  const traceTitle = traceIsHourly
+    ? 'HOURLY_ACTIVITY_TRACE'
+    : traceIsMonthly
+      ? 'MONTHLY_ACTIVITY_TRACE'
+      : 'DAILY_ACTIVITY_TRACE'
+  const liveProjectName = today.projects?.[0]?.name || liveProjects[0]?.project || ''
+  const liveLanguageName = liveLanguages[0]?.language || topLanguages[0]?.name || ''
+  const liveStatus = (liveData.status || 'synchronized').toUpperCase()
 
   const handleRangeChange = ({ range, start, end }) => {
     const nextRange = range || (start && end ? 'Custom Range' : selectedRange)
@@ -221,279 +616,155 @@ function DashboardContent({ data, config }) {
   }
 
   return (
-    <div className="bg-background text-foreground relative min-h-screen">
-      <div className="dashboard-grid pointer-events-none fixed inset-0 opacity-70" />
-
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
-        <header className="border-border bg-background/80 relative z-10 border p-5 backdrop-blur-sm">
-          {loading && (
-            <div className="absolute inset-x-0 top-0 h-[2px] overflow-hidden">
-              <div className="animate-loading-bar h-full w-1/3 bg-sky-400" />
-            </div>
-          )}
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-4xl">
-              <div className="text-foreground/55 mb-4 flex flex-wrap items-center gap-3 text-[10px] font-semibold tracking-[0.35em] uppercase">
-                <span>Waka Personal</span>
-                <span className="bg-border h-px w-8" />
-                <span>{todayRange.timezone || dashData.timezone || fallbackTimezone}</span>
-              </div>
-
-              <h1 className="text-foreground max-w-4xl text-4xl font-semibold tracking-tight md:text-6xl">
-                {rangeStats?.humanReadableTotal ||
-                  stats.human_readable_total_including_other_language ||
-                  '—'}
-                <span className="block text-base font-medium tracking-[0.25em] text-sky-400 uppercase md:mt-3 md:text-lg">
-                  over {rangeLabel}
-                </span>
-              </h1>
-
-              <div className="text-foreground/65 mt-5 flex flex-wrap gap-3 text-sm">
-                {topProject && (
-                  <span className="border-border border px-3 py-2 text-xs tracking-wide">
-                    <span className="text-foreground/40 mr-1.5">Project</span>
-                    {topProject.name}
-                  </span>
-                )}
-                {topLanguage && (
-                  <span className="border-border border px-3 py-2 text-xs tracking-wide">
-                    <span className="text-foreground/40 mr-1.5">Language</span>
-                    {topLanguage.name}
-                  </span>
-                )}
-                {topMachine && (
-                  <span className="border-border border px-3 py-2 text-xs tracking-wide">
-                    <span className="text-foreground/40 mr-1.5">Machine</span>
-                    {topMachine.name}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-col items-start gap-3 xl:items-end">
-              <div className="flex items-center gap-3">
-                {loading && (
-                  <span className="text-foreground/40 flex items-center gap-1.5 text-[10px] tracking-[0.25em] uppercase">
-                    <span className="inline-block h-1.5 w-1.5 animate-pulse bg-sky-400" />
-                    Updating
-                  </span>
-                )}
-                <ThemeToggle />
-                <DateRangePicker value={selectedRange} onChange={handleRangeChange} />
-              </div>
-              <p className="text-foreground/40 max-w-sm text-xs xl:text-right">
-                {rangeStats
-                  ? `${rangeStats.activeDays} active days · ${rangeStats.humanReadableDailyAvg} avg/day`
-                  : 'Local WakaTime-compatible stats'}
-              </p>
-            </div>
-          </div>
-
-          {errors.length > 0 && (
-            <div className="mt-5 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
-              {errors.map((error, i) => (
-                <p key={i}>{error}</p>
-              ))}
-            </div>
-          )}
-        </header>
-
-        <div
-          className={`flex flex-col gap-6 transition-opacity duration-300 ${loading ? 'pointer-events-none opacity-50' : 'opacity-100'}`}
-        >
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Daily Average"
-              value={
-                rangeStats?.humanReadableDailyAvg ||
-                stats.human_readable_daily_average_including_other_language ||
-                '—'
-              }
-              note={`${rangeStats?.activeDays ?? stats.days_minus_holidays ?? 0} active days in this range`}
-              accent="#38bdf8"
-            />
-            <StatCard
-              label="Best Day"
-              value={rangeStats?.bestDay?.text || stats.best_day?.text || '—'}
-              note={
-                rangeStats?.bestDay?.date || stats.best_day?.date
-                  ? formatDayLabel(rangeStats?.bestDay?.date || stats.best_day?.date)
-                  : 'No peak day yet'
-              }
-              accent="#22c55e"
-            />
-            <StatCard
-              label="Today"
-              value={today.grand_total?.text || '0 secs'}
-              note={
-                today.projects?.[0]
-                  ? `Leading project: ${today.projects[0].name}`
-                  : 'No focused project yet'
-              }
-              accent="#818cf8"
-            />
-            <StatCard
-              label="AI vs Human"
-              value={`${formatCount(rangeStats?.aiAdditions ?? stats.ai_additions ?? 0)} / ${formatCount(rangeStats?.humanAdditions ?? stats.human_additions ?? 0)}`}
-              note={`AI / human additions over ${rangeLabel}`}
-              accent="#f59e0b"
-            />
-          </section>
-
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
-            <DailyTrendChart
-              title="Daily Activity"
-              subtitle="Stacked by top projects with total activity overlaid."
-              days={trendSeries}
-              range={selectedRange}
-            />
-
-            <Card className="border-border/80 bg-background/75 shadow-none backdrop-blur-sm">
-              <CardHeader className="flex-row items-center gap-2 p-5 pb-0">
-                <Activity size={16} className="text-sky-400" />
-                <CardTitle className="text-foreground/55 text-[10px] font-semibold tracking-[0.35em] uppercase">
-                  Momentum Mix
-                </CardTitle>
-              </CardHeader>
-
-              <CardContent className="p-5">
-                {topCategories.length === 0 ? (
-                  <div className="border-border text-foreground/55 border border-dashed p-8 text-sm">
-                    No category data yet.
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {topCategories.map((item) => (
-                      <div key={item.name}>
-                        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                          <span className="text-foreground truncate font-medium">{item.name}</span>
-                          <span className="text-foreground/60">{item.text}</span>
-                        </div>
-                        <div className="border-border bg-foreground/[0.04] h-3 border">
-                          <div
-                            className="h-full"
-                            style={{
-                              width: `${Math.max(4, item.percent || 0)}%`,
-                              background: item.color,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </section>
-
-          <section className="grid gap-4 xl:grid-cols-2">
-            <TimelineChart
-              title="Project Timeline"
-              subtitle={
-                isMultiDay
-                  ? `Daily breakdown by project over ${rangeLabel}.`
-                  : 'Today sliced by project.'
-              }
-              rows={projectRows}
-              axisLabels={timelineAxisLabels}
-            />
-            <TimelineChart
-              title="Language Timeline"
-              subtitle={
-                isMultiDay
-                  ? `Daily breakdown by language over ${rangeLabel}.`
-                  : 'Today sliced by language.'
-              }
-              rows={languageRows}
-              axisLabels={timelineAxisLabels}
-            />
-          </section>
-
-          {hasDeltaData && (
-            <DeltaBars
-              title="AI vs Human Line Changes"
-              subtitle="Positive bars are additions, negative bars are deletions inferred from heartbeat line-change totals."
-              series={deltaSeries}
-            />
-          )}
-
-          <section className="grid gap-4 xl:grid-cols-3">
-            <BreakdownCard
-              title="Projects"
-              subtitle="Where the week was spent."
-              items={topProjects}
-              emptyLabel="No project breakdown available."
-            />
-            <BreakdownCard
-              title="Languages"
-              subtitle="What you actually wrote."
-              items={topLanguages}
-              emptyLabel="No language breakdown available."
-            />
-            <BreakdownCard
-              title="Machines"
-              subtitle="Which machines carried the load."
-              items={topMachines}
-              emptyLabel="No machine data available."
-            />
-          </section>
-
-          <footer className="border-border/40 border-t pt-6 pb-2">
-            <div className="text-foreground/40 flex flex-wrap items-center justify-between gap-4 text-xs">
-              <div className="flex flex-wrap items-center gap-4">
-                <span>
-                  Built by{' '}
-                  <a
-                    href="https://dvgamerr.app/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-foreground/60 hover:text-foreground underline underline-offset-2 transition"
-                  >
-                    dvgamerr
-                  </a>
-                </span>
-                <span className="bg-border h-3 w-px" />
-                <a
-                  href="https://github.com/dvgamerr/waka-personal"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-foreground/60 hover:text-foreground inline-flex items-center gap-1.5 transition"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-                  </svg>
-                  waka-personal
-                </a>
-                <span className="bg-border h-3 w-px" />
-                <span>
-                  {rangeStats?.activeDays ?? 0}/{rangeStats?.totalDays ?? 0} active days in range
-                </span>
-              </div>
-              <span className="text-foreground/25 text-[10px] tracking-widest uppercase">
-                WakaTime-compatible · self-hosted
+    <div className="min-h-screen bg-zinc-950 font-mono text-zinc-300 selection:bg-sky-300/30 selection:text-white">
+      <nav className="sticky top-0 z-50 border-b border-zinc-900 bg-zinc-950/85 backdrop-blur-sm">
+        <div className="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-4 px-4">
+          <div className="flex min-w-0 items-center gap-6">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse bg-sky-300" />
+              <span className="text-sm font-semibold tracking-tight text-zinc-100">
+                WAKA_PERSONAL v2
               </span>
             </div>
-          </footer>
+            <div className="hidden items-center gap-4 text-[11px] tracking-[0.24em] text-zinc-600 uppercase md:flex">
+              <span className="text-sky-300">Dashboard</span>
+              <a href="/insights" className="transition-colors hover:text-zinc-300">
+                Insights
+              </a>
+              <a href="/wrapped" className="transition-colors hover:text-zinc-300">
+                Wrapped
+              </a>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {(loading || liveLoading) && (
+              <span className="hidden items-center gap-2 text-[10px] tracking-[0.22em] text-sky-300 uppercase sm:flex">
+                <span className="h-1.5 w-1.5 animate-pulse bg-sky-300" />
+                {loading ? 'Syncing' : 'Live tick'}
+              </span>
+            )}
+            <ThemeToggle />
+            <DateRangePicker value={selectedRange} onChange={handleRangeChange} />
+          </div>
         </div>
-      </div>
+      </nav>
 
-      <style>{`
-        .dashboard-grid {
-          background-image:
-            linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-            radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 28%),
-            radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.1), transparent 24%);
-          background-size: 48px 48px, 48px 48px, 100% 100%, 100% 100%;
-        }
-        @keyframes loading-bar {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(400%); }
-        }
-        .animate-loading-bar {
-          animation: loading-bar 1.2s ease-in-out infinite;
-        }
-      `}</style>
+      <main className="mx-auto max-w-[1600px] p-4 md:p-6 lg:p-8">
+        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-medium tracking-tight text-zinc-100 md:text-3xl">
+              <span className="text-sky-300">$</span> activity_overview
+              <span className="ml-2 inline-block h-5 w-2 animate-pulse bg-sky-300 align-middle" />
+            </h1>
+            <p className="mt-1 text-xs tracking-[0.22em] text-zinc-500 uppercase">
+              {rangeLabel} - daily refresh - timezone:{' '}
+              {todayRange.timezone || dashData.timezone || fallbackTimezone}
+            </p>
+          </div>
+          <div className="text-right text-[10px] tracking-[0.22em] text-zinc-600 uppercase">
+            <div>Range: {rangeDateText(summaries)}</div>
+            <div className="text-zinc-500">
+              Today: {today.grand_total?.text || '0s'}{' '}
+              <span className="text-sky-300">LIVE 60s</span>
+            </div>
+          </div>
+        </header>
+
+        {errors.length > 0 && (
+          <div className="mb-6 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+            {errors.map((error, i) => (
+              <p key={i}>{error}</p>
+            ))}
+          </div>
+        )}
+
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <KpiPanel
+            label="Active Time [range]"
+            value={
+              rangeStats?.humanReadableTotal ||
+              stats.human_readable_total_including_other_language ||
+              '-'
+            }
+            note={`Avg: ${rangeStats?.humanReadableDailyAvg || stats.human_readable_daily_average_including_other_language || '0s'} / active day`}
+            icon={Activity}
+          />
+          <KpiPanel
+            label="AI Contribution"
+            value={formatPercent(aiPercent)}
+            note={`${formatCount(totalAi)} AI - ${formatCount(totalHuman)} Human additions`}
+            icon={Zap}
+            accent="#bae6fd"
+          />
+          <KpiPanel
+            label="Active Days"
+            value={`${activeDays}/${totalDays || 0}`}
+            note={`Best: ${rangeStats?.bestDay?.text || stats.best_day?.text || 'No peak day yet'}`}
+            icon={Terminal}
+          />
+          <KpiPanel
+            label="Today"
+            value={today.grand_total?.text || '0s'}
+            note={liveProjectName ? `Project: ${liveProjectName}` : 'No focused project yet'}
+            icon={Cpu}
+          />
+        </div>
+
+        <div className="grid grid-cols-12 gap-6">
+          <div className="col-span-12 space-y-6 lg:col-span-8">
+            <AiSplit
+              stats={{
+                aiAdditions: totalAi,
+                humanAdditions: totalHuman,
+                aiDeletions: rangeStats?.aiDeletions ?? stats.ai_deletions,
+              }}
+              topProject={topProjects[0]}
+            />
+            <DailyTrace
+              series={traceSeries}
+              title={traceTitle}
+              showWeekday={!traceIsMonthly && !traceIsHourly}
+            />
+            <ProjectMetrics projects={topProjects} summaries={summaries} />
+          </div>
+
+          <aside className="col-span-12 space-y-6 lg:col-span-4">
+            <AgentStations machines={topMachines} editors={topEditors} />
+            <RankedList
+              title="LANGUAGE_INDEX"
+              items={topLanguages}
+              emptyLabel="No language index yet."
+            />
+            <RankedList
+              title="CATEGORY_MIX"
+              items={topCategories}
+              emptyLabel="No category data yet."
+            />
+          </aside>
+        </div>
+
+        <footer className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border border-zinc-900 bg-zinc-950 p-4 text-[10px] text-zinc-600">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 animate-pulse bg-sky-300" />
+            <span className="text-zinc-500 uppercase">Node Status:</span>
+            <span className="text-sky-300 uppercase">{liveStatus}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-zinc-500 uppercase">Live Project:</span>
+            <span className="text-zinc-300">{liveProjectName || 'local'}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Code2 size={12} />
+            <span className="text-zinc-300">{liveLanguageName || 'No language'}</span>
+          </div>
+          <div className="ml-auto flex gap-4">
+            <span>API</span>
+            <span>CONFIG</span>
+            <span className="text-zinc-800">-</span>
+            <span>LAST_REFRESH: {refreshTimeText(liveData.cachedAt)}</span>
+          </div>
+        </footer>
+      </main>
     </div>
   )
 }

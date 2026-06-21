@@ -78,7 +78,10 @@ If `dist/index.html` exists, the Go server also serves the dashboard from the sa
 - `GET /api/v1/users/current/stats`
 - `GET /api/v1/users/current/statusbar/today`
 - `POST /api/v1/users/current/file_experts`
-- `GET /api/v1/users/current/dashboard`
+- `GET /api/v2/dashboard` (dashboard aggregate endpoint, no auth)
+- `GET /api/v2/live` (live dashboard slice, no auth, used by the web UI every 60 seconds)
+- `GET /api/v2/insights` (insights page data, no auth)
+- `GET /api/v2/wrapped` (wrapped page data, no auth)
 
 ## Client Config
 
@@ -126,7 +129,8 @@ Use these variables when building the dashboard:
 
 - `PUBLIC_API_BASE` for the API origin when frontend and backend are on different origins
 - `PUBLIC_APP_TIMEZONE` for dashboard queries
-- `PUBLIC_APP_API_KEY` to match backend `APP_API_KEY` when auth is enabled
+
+The built-in dashboard uses `GET /api/v2/dashboard` for the main aggregate and polls `GET /api/v2/live` every 60 seconds for live widgets. `/insights` and `/wrapped` load from `GET /api/v2/insights` and `GET /api/v2/wrapped`. These web UI endpoints skip API key auth.
 
 ## Import Backup JSON
 
@@ -165,6 +169,18 @@ go run ./cmd/importer --file <path-to-backup.json>
 go test ./...
 bun run build:dist
 ```
+
+On Windows, avoid rebuilding over the same running `.exe` path. `go build -o bin/waka.exe ./cmd/main.go` will fail while `bin/waka.exe` is still running because Windows locks the file.
+
+Use one of these instead:
+
+```powershell
+go run ./cmd
+.\scripts\dev-api.ps1
+.\scripts\dev-api.ps1 -NoRun
+```
+
+`.\scripts\dev-api.ps1` builds a timestamped `bin/waka-dev-*.exe`, removes old stopped dev binaries, and runs the new build without colliding with the previous process.
 
 ## Notes
 

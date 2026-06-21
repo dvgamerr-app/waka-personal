@@ -1,0 +1,22 @@
+---
+import Layout from '@/layouts/Layout.astro'
+import SyntaxShell from '@/components/dashboard/SyntaxShell.astro'
+import Wrapped from '@/components/dashboard/Wrapped'
+
+const year = new Date().getFullYear()
+const dashboardConfig = {
+  apiBase: (import.meta.env.PUBLIC_API_BASE || '').replace(/\/$/, ''),
+  timezone: import.meta.env.PUBLIC_APP_TIMEZONE || import.meta.env.APP_TIMEZONE || 'UTC',
+}
+---
+
+<Layout title={`Waka Personal Wrapped ${year}`}>
+  <SyntaxShell
+    active="wrapped"
+    command={`wrapped --year=${year}`}
+    subtitle={`${year} Year-in-Code Compilation`}
+    meta={[`Timezone: ${dashboardConfig.timezone}`]}
+  >
+    <Wrapped client:load config={dashboardConfig} year={year} />
+  </SyntaxShell>
+</Layout>
