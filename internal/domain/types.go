@@ -9,12 +9,15 @@ type HeartbeatPayload struct {
 	ID                 string          `json:"id,omitempty"`
 	Entity             string          `json:"entity"`
 	Type               string          `json:"type,omitempty"`
+	EntityType         string          `json:"entity_type,omitempty"`
 	Category           string          `json:"category,omitempty"`
 	Time               float64         `json:"time"`
+	Timestamp          float64         `json:"timestamp,omitempty"`
 	Project            string          `json:"project,omitempty"`
 	AlternateProject   string          `json:"alternate_project,omitempty"`
 	Branch             string          `json:"branch,omitempty"`
 	Language           string          `json:"language,omitempty"`
+	AlternateLanguage  string          `json:"alternate_language,omitempty"`
 	Dependencies       json.RawMessage `json:"dependencies,omitempty"`
 	Lines              *int            `json:"lines,omitempty"`
 	LinesInFile        *int            `json:"lines_in_file,omitempty"`
@@ -32,6 +35,7 @@ type HeartbeatPayload struct {
 	AIOutputTokens     *int64          `json:"ai_output_tokens,omitempty"`
 	AIPromptLength     *int            `json:"ai_prompt_length,omitempty"`
 	Plugin             string          `json:"plugin,omitempty"`
+	UserAgent          string          `json:"user_agent,omitempty"`
 	MachineNameID      string          `json:"machine_name_id,omitempty"`
 	UserAgentID        string          `json:"user_agent_id,omitempty"`
 	CreatedAt          string          `json:"created_at,omitempty"`

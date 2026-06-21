@@ -224,7 +224,7 @@ func TestNewApp_HeartbeatsBulkExecutesHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d with body %s", resp.StatusCode, string(bodyBytes))
 	}
-	for _, expected := range []string{`"accepted":1`, `"id":"hb-1"`, `"entity":"/tmp/main.go"`} {
+	for _, expected := range []string{`"accepted":1`, `"id":"hb-1"`, `"entity":"/tmp/main.go"`, `"responses":[`, `202`} {
 		if !strings.Contains(string(bodyBytes), expected) {
 			t.Fatalf("expected response body to contain %s, got %s", expected, string(bodyBytes))
 		}

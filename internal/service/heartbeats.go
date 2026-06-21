@@ -79,16 +79,18 @@ func NormalizeHeartbeat(payload *domain.HeartbeatPayload, machineName string, im
 		return domain.HeartbeatRecord{}, err
 	}
 
-	heartbeatTime := time.Unix(0, int64(payload.Time*float64(time.Second))).UTC()
+	heartbeatTime := time.Unix(0, int64(resolveHeartbeatTime(payload)*float64(time.Second))).UTC()
 	sourceCreatedAt, err := parseHeartbeatCreatedAt(payload.CreatedAt)
 	if err != nil {
 		return domain.HeartbeatRecord{}, err
 	}
 
-	normalizedType := defaultType(payload.Type)
+	normalizedType := defaultType(resolveHeartbeatType(payload))
 	category := normalizeCategory(payload.Category)
 	project := resolveHeartbeatProject(payload)
+	language := resolveHeartbeatLanguage(payload)
 	lines := resolveHeartbeatLines(payload)
+	plugin := resolveHeartbeatPlugin(payload)
 	dependencies, err := parseDependencies(payload.Dependencies)
 	if err != nil {
 		return domain.HeartbeatRecord{}, err
@@ -106,11 +108,11 @@ func NormalizeHeartbeat(payload *domain.HeartbeatPayload, machineName string, im
 		category,
 		project,
 		payload.Branch,
-		payload.Language,
+		language,
 		payload.IsWrite,
 		payload.Lineno,
 		payload.Cursorpos,
-		payload.Plugin,
+		plugin,
 	)
 
 	return domain.HeartbeatRecord{
@@ -124,7 +126,7 @@ func NormalizeHeartbeat(payload *domain.HeartbeatPayload, machineName string, im
 		Category:            category,
 		Project:             project,
 		Branch:              payload.Branch,
-		Language:            payload.Language,
+		Language:            language,
 		ProjectRootCount:    payload.ProjectRootCount,
 		ProjectFolder:       payload.ProjectFolder,
 		Lineno:              payload.Lineno,
@@ -141,7 +143,7 @@ func NormalizeHeartbeat(payload *domain.HeartbeatPayload, machineName string, im
 		AIPromptLength:      payload.AIPromptLength,
 		MachineName:         machineName,
 		SourceMachineNameID: payload.MachineNameID,
-		Plugin:              payload.Plugin,
+		Plugin:              plugin,
 		SourceUserAgentID:   payload.UserAgentID,
 		Dependencies:        dependencies,
 		ImportBatchID:       importBatchID,
@@ -153,7 +155,7 @@ func validateHeartbeatPayload(payload *domain.HeartbeatPayload) error {
 	if strings.TrimSpace(payload.Entity) == "" {
 		return errors.New("heartbeat entity is required")
 	}
-	if payload.Time <= 0 {
+	if resolveHeartbeatTime(payload) <= 0 {
 		return errors.New("heartbeat time must be greater than zero")
 	}
 	return nil
@@ -179,12 +181,42 @@ func resolveHeartbeatLines(payload *domain.HeartbeatPayload) *int {
 	return payload.LinesInFile
 }
 
+func resolveHeartbeatTime(payload *domain.HeartbeatPayload) float64 {
+	if payload.Time > 0 {
+		return payload.Time
+	}
+	return payload.Timestamp
+}
+
+func resolveHeartbeatType(payload *domain.HeartbeatPayload) string {
+	if strings.TrimSpace(payload.Type) != "" {
+		return payload.Type
+	}
+	return payload.EntityType
+}
+
 func resolveHeartbeatProject(payload *domain.HeartbeatPayload) string {
 	project := strings.TrimSpace(payload.Project)
 	if project != "" {
 		return project
 	}
 	return strings.TrimSpace(payload.AlternateProject)
+}
+
+func resolveHeartbeatLanguage(payload *domain.HeartbeatPayload) string {
+	language := strings.TrimSpace(payload.Language)
+	if language != "" {
+		return language
+	}
+	return strings.TrimSpace(payload.AlternateLanguage)
+}
+
+func resolveHeartbeatPlugin(payload *domain.HeartbeatPayload) string {
+	plugin := strings.TrimSpace(payload.Plugin)
+	if plugin != "" {
+		return plugin
+	}
+	return strings.TrimSpace(payload.UserAgent)
 }
 
 func normalizeCategory(value string) string {

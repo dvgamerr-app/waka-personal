@@ -76,3 +76,51 @@ func TestNormalizeHeartbeat_AITelemetry(t *testing.T) {
 		t.Fatalf("expected ai_prompt_length 64, got %#v", record.AIPromptLength)
 	}
 }
+
+func TestNormalizeHeartbeat_WakaTimeCLIAISyncAliases(t *testing.T) {
+	payloads, err := ParseHeartbeatBody([]byte(`[
+		{
+			"entity": "/tmp/main.go",
+			"entity_type": "file",
+			"timestamp": 1710000000,
+			"alternate_project": "fallback-project",
+			"alternate_language": "Go",
+			"category": "ai coding",
+			"ai_line_changes": -1,
+			"ai_session": "session",
+			"ai_input_tokens": 0,
+			"ai_output_tokens": 7,
+			"ai_prompt_length": 53,
+			"user_agent": "wakatime/2.19.0 (Windows-amd64) go1.26.0 vscode/1.101.0 vscode-wakatime/24.13.0"
+		}
+	]`))
+	if err != nil {
+		t.Fatalf("ParseHeartbeatBody returned error: %v", err)
+	}
+
+	record, err := NormalizeHeartbeat(&payloads[0], "machine-a", nil)
+	if err != nil {
+		t.Fatalf("NormalizeHeartbeat returned error: %v", err)
+	}
+	if record.Type != "file" {
+		t.Fatalf("expected entity_type alias to be used, got %q", record.Type)
+	}
+	if record.Time.Unix() != 1710000000 {
+		t.Fatalf("expected timestamp alias to be used, got %s", record.Time)
+	}
+	if record.Project != "fallback-project" {
+		t.Fatalf("expected alternate project to be used, got %q", record.Project)
+	}
+	if record.Language != "Go" {
+		t.Fatalf("expected alternate language to be used, got %q", record.Language)
+	}
+	if len(record.Plugin) < 8 || record.Plugin[:8] != "wakatime" {
+		t.Fatalf("expected user_agent to be stored as plugin, got %q", record.Plugin)
+	}
+	if record.AILineChanges == nil || *record.AILineChanges != -1 {
+		t.Fatalf("expected ai_line_changes -1, got %#v", record.AILineChanges)
+	}
+	if record.AIOutputTokens == nil || *record.AIOutputTokens != 7 {
+		t.Fatalf("expected ai_output_tokens 7, got %#v", record.AIOutputTokens)
+	}
+}

@@ -299,21 +299,32 @@ func postBulkHeartbeatsHandler(ingester HeartbeatIngester) fiber.Handler {
 		}
 
 		items := make([]fiber.Map, 0, len(records))
+		responses := make([][]any, 0, len(records))
 		for i := range records {
 			record := &records[i]
-			items = append(items, fiber.Map{
-				"id":     record.ID,
-				"entity": record.Entity,
-				"type":   record.Type,
-				"time":   float64(record.Time.UnixNano()) / float64(time.Second),
+			item := heartbeatResponseData(record)
+			items = append(items, item)
+			responses = append(responses, []any{
+				fiber.Map{"data": item},
+				fiber.StatusAccepted,
 			})
 		}
 		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+			"responses": responses,
 			"data": fiber.Map{
 				"accepted":   len(records),
 				"heartbeats": items,
 			},
 		})
+	}
+}
+
+func heartbeatResponseData(record *domain.HeartbeatRecord) fiber.Map {
+	return fiber.Map{
+		"id":     record.ID,
+		"entity": record.Entity,
+		"type":   record.Type,
+		"time":   float64(record.Time.UnixNano()) / float64(time.Second),
 	}
 }
 
@@ -951,3 +962,4 @@ func stringOrNil(value string) any {
 	}
 	return value
 }
+
