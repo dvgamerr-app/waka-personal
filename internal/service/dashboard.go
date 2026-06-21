@@ -150,6 +150,7 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue, false)
 	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue, false)
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
+	aiModels, _ := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
 
 	dayCount := daySpan(window.startLocal, window.endLocal)
 	activeDayCount := activeDays(days)
@@ -187,6 +188,7 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 		"operating_systems":                                     operatingSystems,
 		"dependencies":                                          dependencies,
 		"machines":                                              machines,
+		"ai_models":                                             aiModels,
 		"best_day": map[string]any{
 			"date":          bestDayDate,
 			"text":          humanizeDuration(bestDaySeconds),
@@ -401,6 +403,7 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue, false)
 	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue, false)
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
+	aiModels, _ := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
 
 	summary := map[string]any{
 		"grand_total": mergeMaps(timeFieldsMap(totalSecondsIncludingOther), map[string]any{
@@ -417,6 +420,7 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 		"operating_systems": operatingSystems,
 		"dependencies":      dependencies,
 		"machines":          machines,
+		"ai_models":         aiModels,
 		"range": map[string]any{
 			"date":     dayStartLocal.Format("2006-01-02"),
 			"start":    dayStartLocal.UTC().Format(time.RFC3339),
@@ -937,39 +941,71 @@ func machineBucketValue(record domain.HeartbeatRecord) (string, bool) {
 	return name, true
 }
 
+func inferAIModel(record domain.HeartbeatRecord) string {
+	if record.AIAgentName != "" {
+		return record.AIAgentName
+	}
+	switch inferEditor(record) {
+	case "Claude Code":
+		return "Claude"
+	case "Codex CLI":
+		return "Codex"
+	case "Cursor":
+		return "Cursor"
+	default:
+		return ""
+	}
+}
+
+func aiModelBucketValue(record domain.HeartbeatRecord) (string, bool) {
+	model := inferAIModel(record)
+	if model == "" {
+		return "", false
+	}
+	return model, true
+}
+
 func inferEditor(record domain.HeartbeatRecord) string {
 	plugin := strings.TrimSpace(strings.ToLower(record.Plugin))
 	if plugin == "" {
 		return ""
 	}
 
-	editor := plugin
-	if slash := strings.Index(editor, "/"); slash >= 0 {
-		editor = editor[:slash]
-	}
-	if space := strings.Index(editor, " "); space >= 0 {
-		editor = editor[:space]
+	// WakaTime format: "wakatime/X editor/Y os/Z" — scan all segments for known editors
+	for _, segment := range strings.Fields(plugin) {
+		name := segment
+		if idx := strings.Index(name, "/"); idx >= 0 {
+			name = name[:idx]
+		}
+		switch name {
+		case "code", "vscode":
+			return "VS Code"
+		case "cursor":
+			return "Cursor"
+		case "nvim", "neovim":
+			return "Neovim"
+		case "jetbrains":
+			return "JetBrains"
+		case "claude-code", "claude":
+			return "Claude Code"
+		case "codex-cli", "codex":
+			return "Codex CLI"
+		}
 	}
 
-	switch editor {
-	case "code", "vscode":
-		return "VS Code"
-	case "cursor":
-		return "Cursor"
-	case "nvim", "neovim":
-		return "Neovim"
-	case "jetbrains":
-		return "JetBrains"
-	case "claude-code", "claude":
-		return "Claude Code"
-	case "codex-cli", "codex":
-		return "Codex CLI"
-	default:
-		if editor == "" {
-			return ""
+	// Fallback: first segment that isn't wakatime or an OS token
+	skip := map[string]bool{"wakatime": true, "linux": true, "windows": true, "darwin": true, "mac": true}
+	for _, segment := range strings.Fields(plugin) {
+		name := segment
+		if idx := strings.Index(name, "/"); idx >= 0 {
+			name = name[:idx]
 		}
-		return strings.ToUpper(editor[:1]) + editor[1:]
+		if name == "" || skip[name] {
+			continue
+		}
+		return strings.ToUpper(name[:1]) + name[1:]
 	}
+	return ""
 }
 
 func inferOperatingSystem(record domain.HeartbeatRecord) string {

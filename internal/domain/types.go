@@ -71,6 +71,7 @@ type HeartbeatRecord struct {
 	SourceMachineNameID string
 	Plugin              string
 	SourceUserAgentID   string
+	AIAgentName         string
 	Dependencies        []string
 	ImportBatchID       *string
 	OriginPayload       []byte

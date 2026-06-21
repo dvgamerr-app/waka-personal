@@ -222,6 +222,7 @@ export const computeRangeStats = (summaries) => {
   const editorMap = new Map()
   const categoryMap = new Map()
   const osMap = new Map()
+  const aiModelMap = new Map()
 
   const accumulate = (map, items) => {
     normalizeItems(items).forEach((item) => {
@@ -276,6 +277,14 @@ export const computeRangeStats = (summaries) => {
     accumulate(editorMap, day.editors)
     accumulate(categoryMap, day.categories)
     accumulate(osMap, day.operating_systems)
+    normalizeItems(day.ai_models).forEach((item) => {
+      const name = item.name || 'Unknown'
+      const cur = aiModelMap.get(name) || { total_seconds: 0, ai_additions: 0, ai_deletions: 0 }
+      cur.total_seconds += Number(item.total_seconds) || 0
+      cur.ai_additions += Number(item.ai_additions) || 0
+      cur.ai_deletions += Number(item.ai_deletions) || 0
+      aiModelMap.set(name, cur)
+    })
   }
 
   const activeDays = days.filter((d) => (Number(d.grand_total?.total_seconds) || 0) > 0).length
@@ -352,6 +361,23 @@ export const computeRangeStats = (summaries) => {
     machines: toRanked(machineMap, totalSeconds),
     editors: toRanked(editorMap, totalSeconds),
     operatingSystems: toRanked(osMap, totalSeconds),
+    aiModels: (() => {
+      const entries = Array.from(aiModelMap.entries())
+      const totalLines = entries.reduce((s, [, m]) => s + m.ai_additions + m.ai_deletions, 0)
+      const totalAiSecs = entries.reduce((s, [, m]) => s + m.total_seconds, 0)
+      return entries
+        .map(([name, m]) => {
+          const lines = m.ai_additions + m.ai_deletions
+          const percent =
+            totalLines > 0
+              ? (lines / totalLines) * 100
+              : totalAiSecs > 0
+                ? (m.total_seconds / totalAiSecs) * 100
+                : 0
+          return { name, total_seconds: m.total_seconds, lines, ai_additions: m.ai_additions, ai_deletions: m.ai_deletions, percent }
+        })
+        .sort((a, b) => (totalLines > 0 ? b.lines - a.lines : b.total_seconds - a.total_seconds))
+    })(),
     categories: Array.from(categoryMap.entries())
       .map(([name, total_seconds]) => ({
         name,

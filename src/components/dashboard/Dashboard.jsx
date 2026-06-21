@@ -461,22 +461,22 @@ const RankedList = ({ title, items, emptyLabel = 'No data available.' }) => {
   )
 }
 
-const AgentStations = ({ machines, editors }) => {
-  const rows = topItems(editors?.length ? editors : machines, 4)
+const AgentStations = ({ aiModels }) => {
+  const rows = topItems(aiModels, 4)
 
   const getStatus = (index) => {
     if (index === 0)
       return { label: 'Active', textColor: 'text-sky-300', dotClass: 'animate-pulse bg-sky-300' }
     if (index === 1)
-      return { label: 'Standby', textColor: 'text-muted-foreground', dotClass: 'bg-zinc-700 dark:bg-zinc-700' }
-    return { label: 'Idle', textColor: 'text-muted-foreground/60', dotClass: 'bg-zinc-400 dark:bg-zinc-800' }
+      return { label: 'Standby', textColor: 'text-muted-foreground', dotClass: 'bg-zinc-500 dark:bg-zinc-500' }
+    return { label: 'Idle', textColor: 'text-muted-foreground/60', dotClass: 'bg-zinc-600 dark:bg-zinc-700' }
   }
 
   return (
     <section className={`${PANEL} p-5`}>
       <SectionTitle>AGENT_STATIONS</SectionTitle>
       {rows.length === 0 ? (
-        <EmptyState label="No machine stations online." />
+        <EmptyState label="No AI agent activity in this range." />
       ) : (
         <div className="space-y-3">
           {rows.map((station, index) => {
@@ -497,9 +497,9 @@ const AgentStations = ({ machines, editors }) => {
                     {label}
                   </span>
                 </div>
-                <div className="space-y-0.5 text-[10px] text-muted-foreground uppercase">
-                  <div>{formatCount(station.total_seconds)} Lines</div>
-                  <div>{formatPercent(station.percent)} Load</div>
+                <div className="grid grid-cols-2 text-[10px] text-muted-foreground uppercase">
+                  <div>{station.lines > 0 ? `${formatCount(station.lines)} Lines` : formatShortDuration(station.total_seconds)}</div>
+                  <div className="text-right">{formatPercent(station.percent)} Load</div>
                 </div>
               </div>
             )
@@ -708,6 +708,19 @@ function DashboardContent({ data, config }) {
     return topItems(items, 6)
   }, [rangeStats, stats.editors])
   const topOperatingSystems = useMemo(() => topItems(rangeStats?.operatingSystems, 5), [rangeStats])
+  const topAiModels = useMemo(() => {
+    if (rangeStats?.aiModels?.length) return topItems(rangeStats.aiModels, 4)
+    const models = normalizeItems(stats.ai_models)
+    const total = models.reduce((s, m) => s + (Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0), 0)
+    return topItems(
+      models.map((m) => ({
+        ...m,
+        lines: (Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0),
+        percent: total > 0 ? (((Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0)) / total) * 100 : 0,
+      })),
+      4
+    )
+  }, [rangeStats, stats.ai_models])
 
   const totalAi = Number(rangeStats?.aiAdditions ?? stats.ai_additions) || 0
   const totalHuman = Number(rangeStats?.humanAdditions ?? stats.human_additions) || 0
@@ -864,7 +877,7 @@ function DashboardContent({ data, config }) {
           </div>
 
           <aside className="col-span-12 space-y-6 lg:col-span-4">
-            <AgentStations machines={topMachines} editors={topEditors} />
+            <AgentStations aiModels={topAiModels} />
             <EditorUsage
               editors={topEditors.length ? topEditors : dashData.editorDurations || []}
               operatingSystems={topOperatingSystems}

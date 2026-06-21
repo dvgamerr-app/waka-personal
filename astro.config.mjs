@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url'
 import react from '@astrojs/react'
 import tailwindcss from '@tailwindcss/vite'
 import { loadEnv } from 'vite'
-import bun from '@nurodev/astro-bun'
 
 const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '')
 const apiProxyTarget = env.API_PROXY_TARGET || 'http://127.0.0.1:8080'
@@ -17,8 +16,7 @@ const silenceWatcherListenerWarning = () => ({
 
 export default defineConfig({
   integrations: [react()],
-  adapter: bun(),
-  output: 'server',
+  output: 'static',
   server: {
     host: false,
   },

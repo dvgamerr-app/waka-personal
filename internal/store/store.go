@@ -503,15 +503,16 @@ func setImportBatchID(record *domain.HeartbeatRecord, value any) error {
 func (s *Store) ListHeartbeatsByRange(ctx context.Context, start, end time.Time) ([]domain.HeartbeatRecord, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT
-			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
-			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
-			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
-			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload, ai_session, ai_subscription_plan, ai_input_tokens, ai_output_tokens,
-			ai_prompt_length
-		FROM heartbeats
-		WHERE time >= $1 AND time < $2
-		ORDER BY time ASC, entity ASC
+			h.id, h.source_heartbeat_id, h.dedupe_hash, h.time, h.source_created_at, h.entity, h.type, h.category,
+			h.project, h.branch, h.language, h.project_root_count, h.project_folder, h.lineno, h.cursorpos,
+			h.lines, h.is_write, h.is_unsaved_entity, h.ai_line_changes, h.human_line_changes, h.machine_name,
+			h.source_machine_name_id, h.plugin, h.source_user_agent_id, h.dependencies, h.import_batch_id,
+			h.origin_payload, h.ai_session, h.ai_subscription_plan, h.ai_input_tokens, h.ai_output_tokens,
+			h.ai_prompt_length, sua.ai_agent_name
+		FROM heartbeats h
+		LEFT JOIN source_user_agents sua ON sua.id = h.source_user_agent_id
+		WHERE h.time >= $1 AND h.time < $2
+		ORDER BY h.time ASC, h.entity ASC
 	`, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("list heartbeats by range: %w", err)
@@ -537,14 +538,15 @@ func (s *Store) ListHeartbeatsForEntity(ctx context.Context, entity, project str
 	builder := strings.Builder{}
 	builder.WriteString(`
 		SELECT
-			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
-			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
-			lines, is_write, is_unsaved_entity, ai_line_changes, human_line_changes, machine_name,
-			source_machine_name_id, plugin, source_user_agent_id, dependencies, import_batch_id,
-			origin_payload, ai_session, ai_subscription_plan, ai_input_tokens, ai_output_tokens,
-			ai_prompt_length
-		FROM heartbeats
-		WHERE entity = $1
+			h.id, h.source_heartbeat_id, h.dedupe_hash, h.time, h.source_created_at, h.entity, h.type, h.category,
+			h.project, h.branch, h.language, h.project_root_count, h.project_folder, h.lineno, h.cursorpos,
+			h.lines, h.is_write, h.is_unsaved_entity, h.ai_line_changes, h.human_line_changes, h.machine_name,
+			h.source_machine_name_id, h.plugin, h.source_user_agent_id, h.dependencies, h.import_batch_id,
+			h.origin_payload, h.ai_session, h.ai_subscription_plan, h.ai_input_tokens, h.ai_output_tokens,
+			h.ai_prompt_length, sua.ai_agent_name
+		FROM heartbeats h
+		LEFT JOIN source_user_agents sua ON sua.id = h.source_user_agent_id
+		WHERE h.entity = $1
 	`)
 	args := []any{entity}
 	argPos := 2
@@ -1317,7 +1319,7 @@ func scanHeartbeats(rows pgx.Rows) ([]domain.HeartbeatRecord, error) {
 		var record domain.HeartbeatRecord
 		var sourceHeartbeatID *string
 		var project, branch, language, projectFolder, machineName, sourceMachineNameID, plugin, sourceUserAgentID *string
-		var aiSession, aiSubscriptionPlan *string
+		var aiSession, aiSubscriptionPlan, aiAgentName *string
 		var dependencies []byte
 		var importBatchID *string
 		if err := rows.Scan(
@@ -1353,6 +1355,7 @@ func scanHeartbeats(rows pgx.Rows) ([]domain.HeartbeatRecord, error) {
 			&record.AIInputTokens,
 			&record.AIOutputTokens,
 			&record.AIPromptLength,
+			&aiAgentName,
 		); err != nil {
 			return nil, fmt.Errorf("scan heartbeat row: %w", err)
 		}
@@ -1368,6 +1371,7 @@ func scanHeartbeats(rows pgx.Rows) ([]domain.HeartbeatRecord, error) {
 		record.SourceMachineNameID = derefString(sourceMachineNameID)
 		record.Plugin = derefString(plugin)
 		record.SourceUserAgentID = derefString(sourceUserAgentID)
+		record.AIAgentName = derefString(aiAgentName)
 		record.ImportBatchID = importBatchID
 		if len(dependencies) > 0 {
 			if err := json.Unmarshal(dependencies, &record.Dependencies); err != nil {
