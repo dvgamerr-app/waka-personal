@@ -31,7 +31,7 @@ func TestSummarizeHeartbeats(t *testing.T) {
 }
 
 func TestHumanizeDuration(t *testing.T) {
-	if got := humanizeDuration(3720); got != "1 hr 2 mins" {
+	if got := humanizeDuration(3720); got != "1h 02m" {
 		t.Fatalf("unexpected duration text: %s", got)
 	}
 }

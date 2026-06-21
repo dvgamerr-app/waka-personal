@@ -94,7 +94,7 @@ func (s stubQuery) Summaries(ctx context.Context, params domain.SummaryQueryPara
 	return []map[string]any{
 		{
 			"grand_total": map[string]any{
-				"text":          "1 hr 2 mins",
+				"text":          "1h 02m",
 				"total_seconds": 3720.0,
 			},
 		},
@@ -103,7 +103,7 @@ func (s stubQuery) Summaries(ctx context.Context, params domain.SummaryQueryPara
 
 func (s stubQuery) Stats(ctx context.Context, params domain.StatsQueryParams) (map[string]any, error) {
 	return map[string]any{
-		"human_readable_total_including_other_language": "2 hrs 10 mins",
+		"human_readable_total_including_other_language": "2h 10m",
 		"total_seconds_including_other_language":        7800.0,
 	}, nil
 }
@@ -111,13 +111,13 @@ func (s stubQuery) Stats(ctx context.Context, params domain.StatsQueryParams) (m
 func (s stubQuery) StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error) {
 	return map[string]any{
 		"grand_total": map[string]any{
-			"text":          "1 hr 2 mins",
+			"text":          "1h 02m",
 			"total_seconds": 3720.0,
 		},
 		"categories": []map[string]any{
 			{
 				"name":          "Coding",
-				"text":          "1 hr 2 mins",
+				"text":          "1h 02m",
 				"total_seconds": 3720.0,
 			},
 		},
@@ -180,7 +180,7 @@ func TestNewApp_FileExpertsAcceptsDoubleEncodedJSON(t *testing.T) {
 				{
 					"user": map[string]any{"name": "dvgamerr", "is_current_user": true},
 					"total": map[string]any{
-						"text":          "10 mins",
+						"text":          "10m",
 						"total_seconds": 600,
 					},
 				},

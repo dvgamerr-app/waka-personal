@@ -46,6 +46,8 @@ type bucketAccumulator struct {
 	aiDeletions    int
 	humanAdditions int
 	humanDeletions int
+	inputTokens    int64
+	outputTokens   int64
 }
 
 type rangeWindow struct {
@@ -557,6 +559,12 @@ func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labe
 		}
 
 		bucket.seconds += intervals[i].seconds
+		if record.AIInputTokens != nil {
+			bucket.inputTokens += *record.AIInputTokens
+		}
+		if record.AIOutputTokens != nil {
+			bucket.outputTokens += *record.AIOutputTokens
+		}
 		if includeLineChanges {
 			aiAdditions, aiDeletions := splitLineChanges(record.AILineChanges)
 			humanAdditions, humanDeletions := splitLineChanges(record.HumanLineChanges)
@@ -581,6 +589,10 @@ func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labe
 			item["ai_deletions"] = acc.aiDeletions
 			item["human_additions"] = acc.humanAdditions
 			item["human_deletions"] = acc.humanDeletions
+			totalTokens := acc.inputTokens + acc.outputTokens
+			spendCents := int64(float64(acc.inputTokens)*0.003/1000*100) + int64(float64(acc.outputTokens)*0.015/1000*100)
+			item["token_count"] = totalTokens
+			item["spend_cents"] = spendCents
 		}
 		items = append(items, item)
 	}

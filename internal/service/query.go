@@ -200,37 +200,18 @@ func totalDurationSeconds(heartbeats []domain.HeartbeatRecord, timeout time.Dura
 func humanizeDuration(totalSeconds float64) string {
 	seconds := int(totalSeconds + 0.5)
 	if seconds <= 0 {
-		return "0 secs"
+		return "0s"
 	}
-
 	hours := seconds / 3600
 	minutes := (seconds % 3600) / 60
-	remainingSeconds := seconds % 60
-	parts := make([]string, 0, 2)
+	remaining := seconds % 60
 	if hours > 0 {
-		if hours == 1 {
-			parts = append(parts, "1 hr")
-		} else {
-			parts = append(parts, fmt.Sprintf("%d hrs", hours))
-		}
+		return fmt.Sprintf("%dh %02dm", hours, minutes)
 	}
 	if minutes > 0 {
-		if minutes == 1 {
-			parts = append(parts, "1 min")
-		} else {
-			parts = append(parts, fmt.Sprintf("%d mins", minutes))
-		}
+		return fmt.Sprintf("%dm", minutes)
 	}
-	if len(parts) == 0 && remainingSeconds > 0 {
-		if remainingSeconds == 1 {
-			return "1 sec"
-		}
-		return fmt.Sprintf("%d secs", remainingSeconds)
-	}
-	if len(parts) == 0 {
-		return "0 secs"
-	}
-	return strings.Join(parts, " ")
+	return fmt.Sprintf("%ds", remaining)
 }
 
 var categoryDisplayNames = map[string]string{
