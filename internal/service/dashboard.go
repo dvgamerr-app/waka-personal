@@ -960,6 +960,10 @@ func inferEditor(record domain.HeartbeatRecord) string {
 		return "Neovim"
 	case "jetbrains":
 		return "JetBrains"
+	case "claude-code", "claude":
+		return "Claude Code"
+	case "codex-cli", "codex":
+		return "Codex CLI"
 	default:
 		if editor == "" {
 			return ""

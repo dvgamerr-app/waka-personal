@@ -227,6 +227,111 @@ func replaceGeneratedSourceUserAgentID(ctx context.Context, db sourceUserAgentDB
 	return nil
 }
 
+func (s *Store) ResolveSourceMachineNameID(ctx context.Context, preferredID, machineName string) (string, error) {
+	id, err := upsertSourceMachineName(ctx, s.db, preferredID, machineName, "api")
+	if err != nil {
+		return "", fmt.Errorf("resolve source machine name: %w", err)
+	}
+	return id, nil
+}
+
+func upsertSourceMachineName(ctx context.Context, db sourceUserAgentDB, preferredID, machineName, source string) (string, error) {
+	preferredID = strings.TrimSpace(preferredID)
+	machineName = strings.TrimSpace(machineName)
+	if preferredID == "" && machineName == "" {
+		return "", nil
+	}
+
+	if source == "" {
+		source = "local"
+	}
+
+	if preferredID != "" && machineName != "" {
+		if err := replaceGeneratedSourceMachineNameID(ctx, db, preferredID, machineName, source); err != nil {
+			return "", err
+		}
+	}
+
+	id := preferredID
+	if id == "" {
+		id = uuid.NewString()
+	}
+
+	var resolvedID string
+	err := db.QueryRow(ctx, `
+		INSERT INTO source_machine_names (id, machine_name, source, updated_at)
+		VALUES ($1, NULLIF($2, ''), $3, NOW())
+		ON CONFLICT (id) DO UPDATE
+		SET machine_name = COALESCE(EXCLUDED.machine_name, source_machine_names.machine_name),
+			source = EXCLUDED.source,
+			updated_at = NOW()
+		RETURNING id
+	`, id, machineName, source).Scan(&resolvedID)
+	if err == nil {
+		return resolvedID, nil
+	}
+	if !IsUniqueViolation(err) || machineName == "" {
+		return "", fmt.Errorf("upsert source machine name: %w", err)
+	}
+
+	err = db.QueryRow(ctx, `
+		UPDATE source_machine_names
+		SET source = $2,
+			updated_at = NOW()
+		WHERE machine_name = $1
+		RETURNING id
+	`, machineName, source).Scan(&resolvedID)
+	if err != nil {
+		return "", fmt.Errorf("lookup source machine name by machine_name: %w", err)
+	}
+	return resolvedID, nil
+}
+
+func replaceGeneratedSourceMachineNameID(ctx context.Context, db sourceUserAgentDB, preferredID, machineName, source string) error {
+	var existingID string
+	err := db.QueryRow(ctx, `
+		SELECT id
+		FROM source_machine_names
+		WHERE machine_name = $1
+		LIMIT 1
+	`, machineName).Scan(&existingID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lookup existing source machine name: %w", err)
+	}
+	if existingID == preferredID {
+		return nil
+	}
+
+	_, err = db.Exec(ctx, `
+		UPDATE source_machine_names
+		SET id = $1,
+			source = $3,
+			updated_at = NOW()
+		WHERE id = $2
+	`, preferredID, existingID, source)
+	if err == nil {
+		return nil
+	}
+	if !IsUniqueViolation(err) {
+		return fmt.Errorf("replace generated source machine name id: %w", err)
+	}
+
+	if _, err := db.Exec(ctx, `
+		UPDATE heartbeats
+		SET source_machine_name_id = $1
+		WHERE source_machine_name_id = $2
+	`, preferredID, existingID); err != nil {
+		return fmt.Errorf("move heartbeats to trusted source machine name id: %w", err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM source_machine_names WHERE id = $1`, existingID); err != nil {
+		return fmt.Errorf("delete generated source machine name id: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) UpsertHeartbeats(ctx context.Context, records []domain.HeartbeatRecord) ([]domain.HeartbeatRecord, error) {
 	if len(records) == 0 {
 		return nil, nil
@@ -695,6 +800,9 @@ func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID st
 	if userAgentErr := upsertTempSourceUserAgents(ctx, tx); userAgentErr != nil {
 		return 0, 0, userAgentErr
 	}
+	if machineNameErr := upsertTempSourceMachineNames(ctx, tx); machineNameErr != nil {
+		return 0, 0, machineNameErr
+	}
 
 	var totalRows int64
 	totalRows, err = countTempImportRows(ctx, tx)
@@ -1029,6 +1137,100 @@ const upsertTempSourceUserAgentsQuery = `
 func upsertTempSourceUserAgents(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, upsertTempSourceUserAgentsQuery); err != nil {
 		return fmt.Errorf("upsert temp source user agents: %w", err)
+	}
+	return nil
+}
+
+const upsertTempSourceMachineNamesQuery = `
+		INSERT INTO source_machine_names (id, machine_name, source, updated_at)
+		SELECT DISTINCT ON (machine_name)
+			'local-' || md5(machine_name),
+			machine_name,
+			'local',
+			NOW()
+		FROM import_heartbeats_tmp
+		WHERE (source_machine_name_id IS NULL OR source_machine_name_id = '')
+		  AND machine_name IS NOT NULL
+		  AND machine_name <> ''
+		ORDER BY machine_name, time DESC
+		ON CONFLICT DO NOTHING;
+
+		UPDATE import_heartbeats_tmp AS tmp
+		SET source_machine_name_id = machines.id
+		FROM source_machine_names AS machines
+		WHERE (tmp.source_machine_name_id IS NULL OR tmp.source_machine_name_id = '')
+		  AND tmp.machine_name = machines.machine_name;
+
+		WITH exported AS (
+			SELECT DISTINCT ON (source_machine_name_id)
+				source_machine_name_id AS id,
+				NULLIF(machine_name, '') AS machine_name
+			FROM import_heartbeats_tmp
+			WHERE source_machine_name_id IS NOT NULL
+			  AND source_machine_name_id <> ''
+			ORDER BY source_machine_name_id, CASE WHEN machine_name IS NULL OR machine_name = '' THEN 1 ELSE 0 END, time DESC
+		),
+		replacements AS (
+			SELECT DISTINCT ON (machine_name) *
+			FROM exported
+			WHERE machine_name IS NOT NULL
+			ORDER BY machine_name, id
+		),
+		moved_heartbeats AS (
+			UPDATE heartbeats AS heartbeats
+			SET source_machine_name_id = replacements.id
+			FROM source_machine_names AS machines
+			JOIN replacements ON replacements.machine_name = machines.machine_name
+			WHERE machines.id <> replacements.id
+			  AND heartbeats.source_machine_name_id = machines.id
+			  AND EXISTS (
+				SELECT 1
+				FROM source_machine_names AS existing
+				WHERE existing.id = replacements.id
+			  )
+			RETURNING machines.id
+		)
+		DELETE FROM source_machine_names AS machines
+		USING replacements
+		WHERE machines.machine_name = replacements.machine_name
+		  AND machines.id <> replacements.id
+		  AND EXISTS (
+			SELECT 1
+			FROM source_machine_names AS existing
+			WHERE existing.id = replacements.id
+		  );
+
+		INSERT INTO source_machine_names (id, machine_name, source, updated_at)
+		SELECT DISTINCT ON (source_machine_name_id)
+			source_machine_name_id,
+			NULLIF(machine_name, ''),
+			'wakatime-export',
+			NOW()
+		FROM import_heartbeats_tmp
+		WHERE source_machine_name_id IS NOT NULL
+		  AND source_machine_name_id <> ''
+		ORDER BY source_machine_name_id, CASE WHEN machine_name IS NULL OR machine_name = '' THEN 1 ELSE 0 END, time DESC
+		ON CONFLICT (id) DO UPDATE
+		SET machine_name = COALESCE(EXCLUDED.machine_name, source_machine_names.machine_name),
+			source = EXCLUDED.source,
+			updated_at = NOW();
+
+		UPDATE import_heartbeats_tmp AS tmp
+		SET source_machine_name_id = machines.id
+		FROM source_machine_names AS machines
+		WHERE tmp.machine_name = machines.machine_name
+		  AND tmp.machine_name IS NOT NULL
+		  AND tmp.machine_name <> ''
+		  AND (
+			tmp.source_machine_name_id IS NULL
+			OR tmp.source_machine_name_id = ''
+			OR tmp.source_machine_name_id LIKE 'local-%'
+		  )
+	`
+
+func upsertTempSourceMachineNames(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, upsertTempSourceMachineNamesQuery); err != nil {
+		return fmt.Errorf("upsert temp source machine names: %w", err)
 	}
 	return nil
 }
