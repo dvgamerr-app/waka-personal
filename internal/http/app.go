@@ -675,6 +675,7 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 		todayCh := make(chan statsResult, 1)
 		projCh := make(chan listResult, 1)
 		langCh := make(chan listResult, 1)
+		editorCh := make(chan listResult, 1)
 
 		go func() {
 			v, e := query.Stats(c.Context(), domain.StatsQueryParams{Range: statsRange, Timezone: timezone})
@@ -696,12 +697,17 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "language", Timezone: timezone})
 			langCh <- listResult{items, e}
 		}()
+		go func() {
+			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "editor", Timezone: timezone})
+			editorCh <- listResult{items, e}
+		}()
 
 		statsRes := <-statsCh
 		summariesRes := <-summariesCh
 		todayRes := <-todayCh
 		projRes := <-projCh
 		langRes := <-langCh
+		editorRes := <-editorCh
 
 		var apiErrors []string
 		if statsRes.err != nil {
@@ -719,6 +725,9 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 		if langRes.err != nil {
 			apiErrors = append(apiErrors, langRes.err.Error())
 		}
+		if editorRes.err != nil {
+			apiErrors = append(apiErrors, editorRes.err.Error())
+		}
 
 		if statsRes.data == nil {
 			statsRes.data = map[string]any{}
@@ -735,6 +744,9 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 		if langRes.data == nil {
 			langRes.data = []map[string]any{}
 		}
+		if editorRes.data == nil {
+			editorRes.data = []map[string]any{}
+		}
 
 		tokens := tokenMetrics(statsRes.data)
 		spend := spendMetrics(tokens)
@@ -745,6 +757,7 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			"today":              todayRes.data,
 			"project_durations":  projRes.data,
 			"language_durations": langRes.data,
+			"editor_durations":   editorRes.data,
 			"token_metrics":      tokens,
 			"spend_metrics":      spend,
 			"errors":             apiErrors,
@@ -843,12 +856,21 @@ func insightsHandler(query QueryReader) fiber.Handler {
 		timezone := c.Query("timezone", "UTC")
 		rangeParam := c.Query("range", "Last 7 Days")
 
+		loc, err := time.LoadLocation(timezone)
+		if err != nil {
+			loc = time.UTC
+		}
+		statsRange := dashboardStatsRange(rangeParam, time.Now().In(loc), loc)
+
 		stats, err := query.Stats(c.Context(), domain.StatsQueryParams{
-			Range:    rangeParam,
+			Range:    statsRange,
 			Timezone: timezone,
 		})
 		if err != nil {
 			return err
+		}
+		if stats == nil {
+			stats = map[string]any{}
 		}
 
 		summaries, err := query.Summaries(c.Context(), domain.SummaryQueryParams{

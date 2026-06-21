@@ -691,13 +691,21 @@ func TestNewApp_DashboardUsesSelectedSingleDayForDurations(t *testing.T) {
 
 	query.mu.Lock()
 	defer query.mu.Unlock()
-	if len(query.durationCalls) != 2 {
-		t.Fatalf("expected 2 durations calls, got %d", len(query.durationCalls))
+	if len(query.durationCalls) != 3 {
+		t.Fatalf("expected 3 durations calls, got %d", len(query.durationCalls))
 	}
+	wantSliceBy := map[string]bool{"project": true, "language": true, "editor": true}
 	for _, call := range query.durationCalls {
 		if call.Date != "2026-06-15" {
 			t.Fatalf("expected duration date %q, got %q", "2026-06-15", call.Date)
 		}
+		if !wantSliceBy[call.SliceBy] {
+			t.Fatalf("unexpected duration slice_by %q", call.SliceBy)
+		}
+		delete(wantSliceBy, call.SliceBy)
+	}
+	if len(wantSliceBy) != 0 {
+		t.Fatalf("missing duration slice_by calls: %v", wantSliceBy)
 	}
 }
 

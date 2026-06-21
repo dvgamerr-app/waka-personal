@@ -26,6 +26,7 @@ const normalizeDashboardData = (data = {}, fallbackTimezone = 'UTC') => ({
   today: data.today || {},
   projectDurations: data.projectDurations || [],
   languageDurations: data.languageDurations || [],
+  editorDurations: data.editor_durations || [],
   tokenMetrics: data.token_metrics || {},
   spendMetrics: data.spend_metrics || {},
   errors: Array.isArray(data.errors) ? data.errors : [],
@@ -59,6 +60,7 @@ const fetchDashboardData = async ({ base, timezone, range, start, end }) => {
       today: {},
       projectDurations: [],
       languageDurations: [],
+      editorDurations: [],
       tokenMetrics: {},
       spendMetrics: {},
       errors: [error || 'Failed to load dashboard data'],
@@ -72,6 +74,7 @@ const fetchDashboardData = async ({ base, timezone, range, start, end }) => {
     today: data.today || {},
     projectDurations: data.project_durations || [],
     languageDurations: data.language_durations || [],
+    editorDurations: data.editor_durations || [],
     tokenMetrics: data.token_metrics || {},
     spendMetrics: data.spend_metrics || {},
     errors: Array.isArray(data.errors) ? data.errors : [],
@@ -460,7 +463,11 @@ const AgentStations = ({ machines, editors }) => {
 }
 
 const EditorUsage = ({ editors }) => {
-  const rows = topItems(editors, 4)
+  const normalized = normalizeItems(editors).map((e) => ({
+    name: e.editor || e.name || 'Unknown',
+    total_seconds: e.duration || e.total_seconds || 0,
+  }))
+  const rows = topItems(normalized, 4)
   const total = rows.reduce((sum, e) => sum + (Number(e.total_seconds) || 0), 0)
 
   return (
@@ -475,7 +482,7 @@ const EditorUsage = ({ editors }) => {
               <div className="mb-1 flex items-center justify-between gap-4">
                 <span className="truncate text-zinc-400">{editor.name}</span>
                 <span className="shrink-0 font-mono text-zinc-500 tabular-nums">
-                  {editor.text || formatShortDuration(editor.total_seconds)}
+                  {formatShortDuration(editor.total_seconds)}
                 </span>
               </div>
               <ProgressLine
@@ -669,9 +676,6 @@ function DashboardContent({ data, config }) {
               <a href="/insights" className="transition-colors hover:text-zinc-300">
                 Insights
               </a>
-              <a href="/reports" className="transition-colors hover:text-zinc-300">
-                Reports
-              </a>
               <a href="/wrapped" className="transition-colors hover:text-zinc-300">
                 Wrapped
               </a>
@@ -783,16 +787,11 @@ function DashboardContent({ data, config }) {
 
           <aside className="col-span-12 space-y-6 lg:col-span-4">
             <AgentStations machines={topMachines} editors={topEditors} />
-            <EditorUsage editors={liveData.editorDurations || []} />
+            <EditorUsage editors={dashData.editorDurations || []} />
             <RankedList
               title="LANGUAGE_INDEX"
               items={topLanguages}
               emptyLabel="No language index yet."
-            />
-            <RankedList
-              title="CATEGORY_MIX"
-              items={topCategories}
-              emptyLabel="No category data yet."
             />
           </aside>
         </div>
