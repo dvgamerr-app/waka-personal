@@ -6,53 +6,8 @@ const dashboardConfig = {
   apiBase: (import.meta.env.PUBLIC_API_BASE || '').replace(/\/$/, ''),
   timezone: import.meta.env.PUBLIC_APP_TIMEZONE || import.meta.env.APP_TIMEZONE || 'UTC',
 }
-
-const serverApiBase = (
-  import.meta.env.API_PROXY_TARGET ||
-  import.meta.env.PUBLIC_API_BASE ||
-  'http://127.0.0.1:8080'
-).replace(/\/$/, '')
-
-const timezone = dashboardConfig.timezone
-
-let dashboardData = {
-  timezone,
-  stats: {},
-  summaries: [],
-  today: {},
-  projectDurations: [],
-  languageDurations: [],
-  editorDurations: [],
-  tokenMetrics: {},
-  spendMetrics: {},
-  errors: [],
-}
-
-try {
-  const url = new URL(`${serverApiBase}/api/v2/dashboard`)
-  url.searchParams.set('range', 'Last 7 Days')
-  url.searchParams.set('timezone', timezone)
-  const res = await fetch(url.toString())
-  if (res.ok) {
-    const raw = await res.json()
-    dashboardData = {
-      timezone: raw.timezone || timezone,
-      stats: raw.stats || {},
-      summaries: raw.summaries || [],
-      today: raw.today || {},
-      projectDurations: raw.project_durations || [],
-      languageDurations: raw.language_durations || [],
-      editorDurations: raw.editor_durations || [],
-      tokenMetrics: raw.token_metrics || {},
-      spendMetrics: raw.spend_metrics || {},
-      errors: [],
-    }
-  }
-} catch (_) {
-  // client-side fetch will handle it
-}
 ---
 
 <Layout title="Waka Personal Dashboard">
-  <Dashboard client:load data={dashboardData} config={dashboardConfig} />
+  <Dashboard client:load config={dashboardConfig} />
 </Layout>

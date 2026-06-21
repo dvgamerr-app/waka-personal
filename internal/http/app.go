@@ -1006,7 +1006,11 @@ func dashboardStatsRange(rangeParam string, now time.Time, loc *time.Location) s
 		return monthStart.AddDate(0, -1, 0).Format("2006-01")
 	case "last year":
 		return fmt.Sprintf("%04d", monthStart.Year()-1)
-	case "today", "yesterday", "last 7 days", "last 7 days from yesterday", "this week", "last week":
+	case "today":
+		return "today"
+	case "yesterday":
+		return "yesterday"
+	case "last 7 days", "last 7 days from yesterday", "this week", "last week":
 		return "last_7_days"
 	case "last 14 days", "last 30 days":
 		return "last_30_days"

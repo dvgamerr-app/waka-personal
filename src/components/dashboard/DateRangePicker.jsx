@@ -35,9 +35,9 @@ const formatRangeLabel = (range) => {
   return `${format(range.from, 'MMM d, yyyy')} - ${format(range.to, 'MMM d, yyyy')}`
 }
 
-export default function DateRangePicker({ value = 'Last 7 Days', onChange }) {
+export default function DateRangePicker({ value = 'Last 7 Days', onChange, initialCustomRange }) {
   const [open, setOpen] = useState(false)
-  const [customRange, setCustomRange] = useState()
+  const [customRange, setCustomRange] = useState(initialCustomRange)
   const [draftRange, setDraftRange] = useState()
 
   useEffect(() => {

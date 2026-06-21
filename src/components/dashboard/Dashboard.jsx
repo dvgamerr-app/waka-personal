@@ -279,6 +279,8 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
   const percent = aiShare(stats)
   const humanPercent = Math.max(0, 100 - percent)
   const totalChanges = (Number(stats?.aiAdditions) || 0) + (Number(stats?.humanAdditions) || 0)
+  const totalHours = (Number(rangeStats?.totalSeconds) || Number(stats?.total_seconds) || 0) / 3600
+  const locPerHour = totalHours > 0 ? Math.round(totalChanges / totalHours) : 0
 
   return (
     <section className={`${PANEL} p-5 lg:p-6`}>
@@ -295,7 +297,7 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
             Current Peak
           </span>
           <span className="font-mono text-sm font-medium text-sky-300">
-            {formatCount(totalChanges)} LOC
+            {formatCount(locPerHour)} LOC/hr
           </span>
         </div>
       </div>
@@ -578,37 +580,39 @@ const EmptyState = ({ label }) => (
   </div>
 )
 
-export default function Dashboard({ data = {}, config = {} }) {
+export default function Dashboard({ config = {} }) {
   return (
     <ThemeProvider>
-      <DashboardContent data={data} config={config} />
+      <DashboardContent config={config} />
     </ThemeProvider>
   )
 }
 
-function DashboardContent({ data, config }) {
+function DashboardContent({ config }) {
   const runtimeConfig = readRuntimeConfig()
   const effectiveConfig = { ...config, ...runtimeConfig }
   const fallbackTimezone = effectiveConfig.timezone || detectTimezone()
-  const hasInitialData =
-    Object.keys(data.stats || {}).length > 0 ||
-    (data.summaries || []).length > 0 ||
-    Object.keys(data.today || {}).length > 0 ||
-    (data.projectDurations || []).length > 0 ||
-    (data.languageDurations || []).length > 0
 
-  const [dashData, setDashData] = useState(() => normalizeDashboardData(data, fallbackTimezone))
-  const [liveData, setLiveData] = useState(() =>
-    normalizeLiveData({
-      today: data.today || {},
-      project_durations: data.projectDurations || [],
-      language_durations: data.languageDurations || [],
-      cached_at: '',
-    })
-  )
+  const [dashData, setDashData] = useState(() => normalizeDashboardData({}, fallbackTimezone))
+  const [liveData, setLiveData] = useState(() => normalizeLiveData({}))
   const [loading, setLoading] = useState(false)
   const [liveLoading, setLiveLoading] = useState(false)
-  const [selectedRange, setSelectedRange] = useState('Last 7 Days')
+  const [selectedRange, setSelectedRange] = useState(() => {
+    if (typeof window === 'undefined') return 'Last 7 Days'
+    const p = new URLSearchParams(window.location.search)
+    const start = p.get('start')
+    const end = p.get('end')
+    if (start && end) return 'Custom Range'
+    return p.get('range') || 'Last 7 Days'
+  })
+  const [initialCustomRange] = useState(() => {
+    if (typeof window === 'undefined') return undefined
+    const p = new URLSearchParams(window.location.search)
+    const start = p.get('start')
+    const end = p.get('end')
+    if (!start || !end) return undefined
+    return { from: new Date(`${start}T00:00:00`), to: new Date(`${end}T00:00:00`) }
+  })
 
   const fetchDashboard = async ({ range, start, end }) => {
     setLoading(true)
@@ -661,10 +665,11 @@ function DashboardContent({ data, config }) {
   }
 
   useEffect(() => {
-    if (hasInitialData) {
-      return
-    }
-    fetchDashboard({ range: selectedRange })
+    fetchDashboard(
+      initialCustomRange
+        ? { range: null, start: initialCustomRange.from.toISOString().slice(0, 10), end: initialCustomRange.to.toISOString().slice(0, 10) }
+        : { range: selectedRange }
+    )
   }, [])
 
   useEffect(() => {
@@ -748,6 +753,14 @@ function DashboardContent({ data, config }) {
     const nextRange = range || (start && end ? 'Custom Range' : selectedRange)
     setSelectedRange(nextRange)
     fetchDashboard({ range, start, end })
+    const p = new URLSearchParams()
+    if (start && end) {
+      p.set('start', start)
+      p.set('end', end)
+    } else {
+      p.set('range', nextRange)
+    }
+    history.replaceState(null, '', `?${p}`)
   }
 
   return (
@@ -779,7 +792,7 @@ function DashboardContent({ data, config }) {
               </span>
             )}
             <ThemeToggle />
-            <DateRangePicker value={selectedRange} onChange={handleRangeChange} />
+            <DateRangePicker value={selectedRange} onChange={handleRangeChange} initialCustomRange={initialCustomRange} />
           </div>
         </div>
       </nav>

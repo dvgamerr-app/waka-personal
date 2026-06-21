@@ -162,7 +162,7 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	}
 
 	aiAdditions, aiDeletions, humanAdditions, humanDeletions := sumLineChanges(intervals)
-	aiInputTokens, aiOutputTokens := sumAITokens(intervals)
+	aiInputTokens, aiOutputTokens := sumAITokens(filtered)
 	nowUTC := time.Now().UTC().Format(time.RFC3339)
 
 	return map[string]any{
@@ -274,6 +274,10 @@ func (s *QueryService) parseStatsWindow(ctx context.Context, value string, now t
 	tomorrow := today.Add(24 * time.Hour)
 
 	switch rangeName {
+	case "today":
+		return rangeWindow{name: "today", humanName: "Today", startLocal: today, endLocal: tomorrow}, nil
+	case "yesterday":
+		return rangeWindow{name: "yesterday", humanName: "Yesterday", startLocal: today.AddDate(0, 0, -1), endLocal: today}, nil
 	case "last_7_days":
 		return rangeWindow{name: "last_7_days", humanName: "Last 7 Days", startLocal: today.AddDate(0, 0, -6), endLocal: tomorrow}, nil
 	case "last_30_days":
@@ -715,14 +719,14 @@ func sumLineChanges(intervals []heartbeatInterval) (int, int, int, int) {
 	return aiAdditions, aiDeletions, humanAdditions, humanDeletions
 }
 
-func sumAITokens(intervals []heartbeatInterval) (int64, int64) {
+func sumAITokens(heartbeats []domain.HeartbeatRecord) (int64, int64) {
 	var inputTokens, outputTokens int64
-	for i := range intervals {
-		if intervals[i].record.AIInputTokens != nil {
-			inputTokens += *intervals[i].record.AIInputTokens
+	for i := range heartbeats {
+		if heartbeats[i].AIInputTokens != nil {
+			inputTokens += *heartbeats[i].AIInputTokens
 		}
-		if intervals[i].record.AIOutputTokens != nil {
-			outputTokens += *intervals[i].record.AIOutputTokens
+		if heartbeats[i].AIOutputTokens != nil {
+			outputTokens += *heartbeats[i].AIOutputTokens
 		}
 	}
 	return inputTokens, outputTokens
