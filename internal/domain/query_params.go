@@ -23,6 +23,8 @@ type SummaryQueryParams struct {
 
 type StatsQueryParams struct {
 	Range          string
+	Start          string
+	End            string
 	Timezone       string
 	TimeoutMinutes *int
 	WritesOnly     *bool

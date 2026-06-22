@@ -92,7 +92,7 @@ func TestParseStatsWindowLastYearUsesPreviousCalendarYear(t *testing.T) {
 	loc := time.FixedZone("UTC+7", 7*60*60)
 	now := time.Date(2026, time.April, 2, 9, 30, 0, 0, loc)
 
-	window, err := (&QueryService{}).parseStatsWindow(context.Background(), "last_year", now, loc)
+	window, err := (&QueryService{}).parseStatsWindow(context.Background(), "last_year", "", "", now, loc)
 	if err != nil {
 		t.Fatalf("parseStatsWindow returned error: %v", err)
 	}

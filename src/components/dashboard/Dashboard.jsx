@@ -838,8 +838,8 @@ function DashboardContent({ config }) {
           <KpiPanel
             label="Active Time"
             value={normalizeWakaTime(
-              rangeStats?.humanReadableTotal ||
-              stats.human_readable_total_including_other_language
+              stats.human_readable_total_including_other_language ||
+              rangeStats?.humanReadableTotal
             ) || '-'}
             note={`Avg: ${normalizeWakaTime(rangeStats?.humanReadableDailyAvg || stats.human_readable_daily_average_including_other_language) || '0m'} / active day`}
             icon={Activity}

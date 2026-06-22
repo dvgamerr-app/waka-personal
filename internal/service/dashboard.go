@@ -128,7 +128,7 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	}
 
 	nowLocal := time.Now().In(settings.location)
-	window, err := s.parseStatsWindow(ctx, params.Range, nowLocal, settings.location)
+	window, err := s.parseStatsWindow(ctx, params.Range, params.Start, params.End, nowLocal, settings.location)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +282,24 @@ func (s *QueryService) resolveQuerySettings(ctx context.Context, timezone string
 	}, nil
 }
 
-func (s *QueryService) parseStatsWindow(ctx context.Context, value string, now time.Time, loc *time.Location) (rangeWindow, error) {
+func (s *QueryService) parseStatsWindow(ctx context.Context, value, start, end string, now time.Time, loc *time.Location) (rangeWindow, error) {
+	if strings.TrimSpace(start) != "" && strings.TrimSpace(end) != "" {
+		startLocal, err := parseDayInLocation(start, loc)
+		if err != nil {
+			return rangeWindow{}, fmt.Errorf("parse start: %w", err)
+		}
+		endLocal, err := parseDayInLocation(end, loc)
+		if err != nil {
+			return rangeWindow{}, fmt.Errorf("parse end: %w", err)
+		}
+		return rangeWindow{
+			name:       fmt.Sprintf("%s..%s", start, end),
+			humanName:  fmt.Sprintf("%s to %s", startLocal.Format("Jan 2, 2006"), endLocal.Format("Jan 2, 2006")),
+			startLocal: startLocal,
+			endLocal:   endLocal.Add(24 * time.Hour),
+		}, nil
+	}
+
 	rangeName := strings.TrimSpace(strings.ToLower(value))
 	if rangeName == "" {
 		rangeName = "last_7_days"

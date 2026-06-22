@@ -683,7 +683,7 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 		editorCh := make(chan listResult, 1)
 
 		go func() {
-			v, e := query.Stats(c.Context(), domain.StatsQueryParams{Range: statsRange, Timezone: timezone})
+			v, e := query.Stats(c.Context(), domain.StatsQueryParams{Range: statsRange, Start: start, End: end, Timezone: timezone})
 			statsCh <- statsResult{v, e}
 		}()
 		go func() {
