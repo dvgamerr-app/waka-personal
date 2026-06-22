@@ -280,6 +280,10 @@ func (s *QueryService) parseStatsWindow(ctx context.Context, value string, now t
 		return rangeWindow{name: "yesterday", humanName: "Yesterday", startLocal: today.AddDate(0, 0, -1), endLocal: today}, nil
 	case "last_7_days":
 		return rangeWindow{name: "last_7_days", humanName: "Last 7 Days", startLocal: today.AddDate(0, 0, -6), endLocal: tomorrow}, nil
+	case "last_week":
+		end := beginningOfWeek(today)
+		start := end.AddDate(0, 0, -7)
+		return rangeWindow{name: "last_week", humanName: "Last Week", startLocal: start, endLocal: end}, nil
 	case "last_30_days":
 		return rangeWindow{name: "last_30_days", humanName: "Last 30 Days", startLocal: today.AddDate(0, 0, -29), endLocal: tomorrow}, nil
 	case "last_6_months":
@@ -399,6 +403,7 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 	intervals := buildHeartbeatIntervals(heartbeats, settings.timeout, limitForDay(dayStartLocal, nowLocal).UTC())
 	totalSecondsIncludingOther := totalIntervalSeconds(intervals)
 	aiAdditions, aiDeletions, humanAdditions, humanDeletions := sumLineChanges(intervals)
+	aiInputTokens, aiOutputTokens := sumAITokens(heartbeats)
 
 	categories, _ := collectBucketData(intervals, totalSecondsIncludingOther, categoryBucketValue, false)
 	projects, _ := collectBucketData(intervals, totalSecondsIncludingOther, projectBucketValue, true)
@@ -411,11 +416,13 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 
 	summary := map[string]any{
 		"grand_total": mergeMaps(timeFieldsMap(totalSecondsIncludingOther), map[string]any{
-			"total_seconds":   totalSecondsIncludingOther,
-			"ai_additions":    aiAdditions,
-			"ai_deletions":    aiDeletions,
-			"human_additions": humanAdditions,
-			"human_deletions": humanDeletions,
+			"total_seconds":    totalSecondsIncludingOther,
+			"ai_additions":     aiAdditions,
+			"ai_deletions":     aiDeletions,
+			"human_additions":  humanAdditions,
+			"human_deletions":  humanDeletions,
+			"ai_input_tokens":  aiInputTokens,
+			"ai_output_tokens": aiOutputTokens,
 		}),
 		"categories":        categories,
 		"projects":          projects,

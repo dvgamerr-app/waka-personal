@@ -1010,8 +1010,10 @@ func dashboardStatsRange(rangeParam string, now time.Time, loc *time.Location) s
 		return "today"
 	case "yesterday":
 		return "yesterday"
-	case "last 7 days", "last 7 days from yesterday", "this week", "last week":
+	case "last 7 days", "last 7 days from yesterday", "this week":
 		return "last_7_days"
+	case "last week":
+		return "last_week"
 	case "last 14 days", "last 30 days":
 		return "last_30_days"
 	default:
