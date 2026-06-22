@@ -3,9 +3,11 @@ package apihttp
 import (
 	"errors"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"waka-personal/internal/service"
@@ -24,7 +26,13 @@ func apiDebugLogger() fiber.Handler {
 			status = statusCodeForError(err)
 		}
 
-		event := log.Debug().
+		var event *zerolog.Event
+		if strings.HasPrefix(c.Path(), "/api/v1") {
+			event = log.Info()
+		} else {
+			event = log.Debug()
+		}
+		event = event.
 			Str("method", method).
 			Str("path", path).
 			Int("status", status).
