@@ -5,15 +5,11 @@ const THEME_KEY = 'theme'
 const ThemeContext = createContext(null)
 
 export const ThemeProvider = ({ children }) => {
-  // SSR-safe: default false on server, sync on client via useEffect
-  const [isDark, setIsDark] = useState(false)
-
-  useEffect(() => {
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === 'undefined') return false
     const stored = localStorage.getItem(THEME_KEY)
-    const initial =
-      stored !== null ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
-    setIsDark(initial)
-  }, [])
+    return stored !== null ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
 
   useEffect(() => {
     if (isDark) {

@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Activity, AlertTriangle, Code2, Cpu, Terminal, Zap } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
-import ThemeToggle from './ThemeToggle'
 import DateRangePicker from './DateRangePicker'
 import {
   buildTrendSeries,
@@ -303,14 +302,15 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
         </div>
       </div>
 
-      <div className="relative flex h-12 overflow-hidden border border-zinc-900 bg-zinc-900">
-        <div className="h-full" style={{ width: `${clampPercent(percent)}%`, background: ACCENT }} />
-        <div
-          className="flex h-full items-center justify-end bg-zinc-800 px-3 text-[11px] text-zinc-500 uppercase"
-          style={{ width: `${clampPercent(humanPercent)}%` }}
-        >
-          Human
-        </div>
+      <div
+        className="relative h-12 overflow-hidden border border-zinc-900"
+        style={{ background: `linear-gradient(to right, ${ACCENT} ${clampPercent(percent)}%, #27272a ${clampPercent(percent)}%)` }}
+      >
+        {humanPercent > 0 && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-end px-3 text-[11px] text-zinc-500 uppercase">
+            Human
+          </div>
+        )}
         <div className="pointer-events-none absolute inset-0 flex items-center px-4 text-xs font-semibold tracking-[0.18em] uppercase">
           <span className={percent >= 15 ? 'text-black' : 'text-sky-300'}>
             AI [{formatPercent(percent)}]
@@ -765,7 +765,7 @@ function DashboardContent({ config }) {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 font-mono text-zinc-100 selection:bg-sky-300/30">
+    <div className="dark min-h-screen bg-zinc-950 font-mono text-zinc-100 selection:bg-sky-300/30">
       <nav className="sticky top-0 z-50 border-b border-zinc-900 bg-zinc-950/85 backdrop-blur-sm">
         <div className="md:hidden flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-500 uppercase">
           <span className="text-sky-300">Dashboard</span>
@@ -797,7 +797,6 @@ function DashboardContent({ config }) {
                 {loading ? 'Syncing' : 'Live tick'}
               </span>
             )}
-            <ThemeToggle />
             <DateRangePicker value={selectedRange} onChange={handleRangeChange} initialCustomRange={initialCustomRange} />
           </div>
         </div>

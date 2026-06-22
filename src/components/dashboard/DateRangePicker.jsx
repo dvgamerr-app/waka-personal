@@ -120,7 +120,7 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange, initi
         <ChevronDown className="size-4 opacity-60" />
       </PopoverTrigger>
 
-      <PopoverContent align="end" sideOffset={10} className="w-[min(96vw,760px)] gap-0 p-0">
+      <PopoverContent align="end" sideOffset={10} className="dark w-[min(96vw,760px)] gap-0 p-0">
         <div className="grid gap-4 md:grid-cols-[230px_minmax(0,1fr)]">
           <div className="border-border border-b p-4 md:border-r md:border-b-0">
             <PopoverHeader className="mb-4 gap-2">
