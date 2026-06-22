@@ -615,8 +615,8 @@ function DashboardContent({ config }) {
     return { from: new Date(`${start}T00:00:00`), to: new Date(`${end}T00:00:00`) }
   })
 
-  const fetchDashboard = async ({ range, start, end }) => {
-    setLoading(true)
+  const fetchDashboard = async ({ range, start, end, silent = false }) => {
+    if (!silent) setLoading(true)
     try {
       const timezone = dashData.timezone || fallbackTimezone
       const nextData = await fetchDashboardData({
@@ -632,6 +632,7 @@ function DashboardContent({ config }) {
         today: nextData.today,
         projectDurations: nextData.projectDurations,
         languageDurations: nextData.languageDurations,
+        editorDurations: nextData.editorDurations,
         errors: [],
       }))
     } catch (error) {
@@ -640,7 +641,7 @@ function DashboardContent({ config }) {
         errors: [error instanceof Error ? error.message : 'Failed to load dashboard data'],
       }))
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -675,9 +676,12 @@ function DashboardContent({ config }) {
 
   useEffect(() => {
     refreshLive()
-    const intervalID = window.setInterval(refreshLive, 60_000)
+    const intervalID = window.setInterval(() => {
+      refreshLive()
+      if (selectedRange === 'Today') fetchDashboard({ range: 'Today', silent: true })
+    }, 60_000)
     return () => window.clearInterval(intervalID)
-  }, [dashData.timezone, fallbackTimezone, effectiveConfig.apiBase])
+  }, [dashData.timezone, fallbackTimezone, effectiveConfig.apiBase, selectedRange])
 
   const stats = dashData.stats || {}
   const summaries = useMemo(() => normalizeItems(dashData.summaries), [dashData.summaries])
@@ -699,10 +703,10 @@ function DashboardContent({ config }) {
   const hourlyTraceSeries = useMemo(
     () =>
       buildHourlyTraceSeries(
-        dashData.projectDurations,
+        liveProjects,
         todayRange.timezone || dashData.timezone || fallbackTimezone
       ),
-    [dashData.projectDurations, todayRange.timezone, dashData.timezone, fallbackTimezone]
+    [liveProjects, todayRange.timezone, dashData.timezone, fallbackTimezone]
   )
   const rangeStats = useMemo(() => computeRangeStats(summaries), [summaries])
 
