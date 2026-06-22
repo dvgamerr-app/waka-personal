@@ -180,6 +180,14 @@ function InsightsContent({ config = {} }) {
     { label: 'MULTI-PROJECT SESSIONS', value: multiProjectSessions },
   ]
 
+  const signalCount = aiTotal + humanTotal
+
+  useEffect(() => {
+    const el = document.getElementById('shell-meta')
+    if (!el) return
+    el.innerHTML = `<div>Signals: <span class="text-zinc-300">${formatCount(signalCount)} events</span></div><div>Anomalies: <span class="text-zinc-300">${anomalies.length} detected</span></div>`
+  }, [signalCount, anomalies.length])
+
   return (
     <div className={`font-mono transition-opacity duration-200 ${loading ? 'opacity-40' : ''}`}>
       {raw.errors.length > 0 && (

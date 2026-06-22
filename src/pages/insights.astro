@@ -14,7 +14,6 @@ const dashboardConfig = {
     active="insights"
     command="insights --window=last-week"
     subtitle="Pattern Analysis · Behavioral Telemetry · Anomaly Surface"
-    meta={['Source: /api/v2/insights', `Timezone: ${dashboardConfig.timezone}`]}
   >
     <Insights client:load config={dashboardConfig} />
   </SyntaxShell>
