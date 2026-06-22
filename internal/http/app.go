@@ -603,23 +603,28 @@ func tokenMetrics(stats map[string]any) map[string]any {
 	}
 }
 
-// spendMetrics calculates estimated spend from token usage
-// ponytail: simplified pricing (claude-3.5-sonnet: $3/$15 per MTok)
-func spendMetrics(tokens map[string]any) map[string]any {
-	inputTokens := toInt64(tokens["input_tokens"])
-	outputTokens := toInt64(tokens["output_tokens"])
-	totalTokens := inputTokens + outputTokens
-
-	// Claude 3.5 Sonnet pricing: $3 per M input, $15 per M output
-	inputCents := int64(float64(inputTokens) * 0.003 / 1000 * 100)
-	outputCents := int64(float64(outputTokens) * 0.015 / 1000 * 100)
-	totalCents := inputCents + outputCents
-
+// spendMetrics sums per-model spend_cents from ai_models bucket (pricing from DB).
+// Falls back to flat Claude Sonnet rate when no model data is present.
+func spendMetrics(stats map[string]any) map[string]any {
+	var totalCents, inputTokens, outputTokens int64
+	if aiModels, ok := stats["ai_models"].([]map[string]any); ok {
+		for _, m := range aiModels {
+			totalCents += toInt64(m["spend_cents"])
+			inputTokens += toInt64(m["input_tokens"])
+			outputTokens += toInt64(m["output_tokens"])
+		}
+	}
+	// ponytail: flat-rate fallback when no model data
+	if totalCents == 0 {
+		inputTokens = toInt64(stats["ai_input_tokens"])
+		outputTokens = toInt64(stats["ai_output_tokens"])
+		totalCents = int64(float64(inputTokens)*0.003/1000*100) + int64(float64(outputTokens)*0.015/1000*100)
+	}
 	return fiber.Map{
 		"estimated_cents": totalCents,
-		"token_count":     totalTokens,
-		"input_cost":      inputCents,
-		"output_cost":     outputCents,
+		"token_count":     inputTokens + outputTokens,
+		"input_tokens":    inputTokens,
+		"output_tokens":   outputTokens,
 	}
 }
 
@@ -749,7 +754,7 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 		}
 
 		tokens := tokenMetrics(statsRes.data)
-		spend := spendMetrics(tokens)
+		spend := spendMetrics(statsRes.data)
 
 		return c.JSON(fiber.Map{
 			"stats":              statsRes.data,
@@ -885,7 +890,7 @@ func insightsHandler(query QueryReader) fiber.Handler {
 		}
 
 		tokens := tokenMetrics(stats)
-		spend := spendMetrics(tokens)
+		spend := spendMetrics(stats)
 
 		return c.JSON(fiber.Map{
 			"timezone":      timezone,
@@ -950,7 +955,7 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 		}
 
 		tokens := tokenMetrics(statsRes.data)
-		spend := spendMetrics(tokens)
+		spend := spendMetrics(statsRes.data)
 
 		return c.JSON(fiber.Map{
 			"timezone":      timezone,

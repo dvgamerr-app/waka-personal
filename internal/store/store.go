@@ -589,6 +589,26 @@ func (s *Store) DeleteHeartbeats(ctx context.Context, start, end time.Time, ids 
 	return tag.RowsAffected(), nil
 }
 
+func (s *Store) ListModelPricing(ctx context.Context) (map[string]domain.ModelPricing, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT model_key, display_name, provider, input_cost_per_mtok, output_cost_per_mtok
+		FROM ai_model_pricing
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]domain.ModelPricing)
+	for rows.Next() {
+		var p domain.ModelPricing
+		if err := rows.Scan(&p.ModelKey, &p.DisplayName, &p.Provider, &p.InputCostPerMTok, &p.OutputCostPerMTok); err != nil {
+			return nil, err
+		}
+		out[p.ModelKey] = p
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) GetProfileSnapshot(ctx context.Context) (*domain.ProfileSnapshot, error) {
 	var snapshot domain.ProfileSnapshot
 	var city []byte

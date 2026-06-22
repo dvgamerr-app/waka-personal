@@ -245,7 +245,8 @@ const DailyTrace = ({ series, title = 'DAILY_ACTIVITY_TRACE', showWeekday = true
       ) : (
         <div className="flex h-48 items-end gap-2 md:gap-3">
           {series.map((day) => {
-            const height = Math.max(3, ((Number(day.totalSeconds) || 0) / maxSeconds) * 100)
+            const raw = (Number(day.totalSeconds) || 0) / maxSeconds * 100
+            const height = raw > 0 ? Math.max(3, raw) : 0
             const isPeak = height >= 99
             return (
               <div

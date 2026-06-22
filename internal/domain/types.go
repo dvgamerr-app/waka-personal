@@ -110,6 +110,14 @@ type ImportBatch struct {
 	ErrorText    *string
 }
 
+type ModelPricing struct {
+	ModelKey          string
+	DisplayName       string
+	Provider          string
+	InputCostPerMTok  float64
+	OutputCostPerMTok float64
+}
+
 type StatusbarCategory struct {
 	Name         string  `json:"name"`
 	Text         string  `json:"text"`

@@ -17,6 +17,7 @@ type querySettings struct {
 	timeout        time.Duration
 	timeoutMinutes int
 	writesOnly     bool
+	pricingFn      func(modelKey string) (inputPerMTok, outputPerMTok float64)
 }
 
 type heartbeatInterval struct {
@@ -150,7 +151,8 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue, false)
 	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue, false)
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
-	aiModels, _ := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
+	aiModels, aiModelAccs := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
+	applyModelPricing(aiModels, aiModelAccs, settings.pricingFn)
 
 	dayCount := daySpan(window.startLocal, window.endLocal)
 	activeDayCount := activeDays(days)
@@ -254,6 +256,21 @@ func (s *QueryService) resolveQuerySettings(ctx context.Context, timezone string
 		effectiveWritesOnly = *writesOnly
 	}
 
+	pricing, _ := s.store.ListModelPricing(ctx)
+	if pricing == nil {
+		pricing = map[string]domain.ModelPricing{}
+	}
+	defIn, defOut := 3.0, 15.0
+	if def, ok := pricing["default"]; ok {
+		defIn, defOut = def.InputCostPerMTok, def.OutputCostPerMTok
+	}
+	pricingFn := func(key string) (float64, float64) {
+		if p, ok := pricing[key]; ok {
+			return p.InputCostPerMTok, p.OutputCostPerMTok
+		}
+		return defIn, defOut
+	}
+
 	return querySettings{
 		profile:        profile,
 		location:       loc,
@@ -261,6 +278,7 @@ func (s *QueryService) resolveQuerySettings(ctx context.Context, timezone string
 		timeout:        time.Duration(effectiveTimeout) * time.Minute,
 		timeoutMinutes: effectiveTimeout,
 		writesOnly:     effectiveWritesOnly,
+		pricingFn:      pricingFn,
 	}, nil
 }
 
@@ -412,7 +430,8 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue, false)
 	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue, false)
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
-	aiModels, _ := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
+	aiModels, aiModelAccs := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
+	applyModelPricing(aiModels, aiModelAccs, settings.pricingFn)
 
 	summary := map[string]any{
 		"grand_total": mergeMaps(timeFieldsMap(totalSecondsIncludingOther), map[string]any{
@@ -613,6 +632,23 @@ func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labe
 	}
 
 	return items, accumulators
+}
+
+func applyModelPricing(items []map[string]any, accs map[string]*bucketAccumulator, pricingFn func(string) (float64, float64)) {
+	if pricingFn == nil {
+		return
+	}
+	for i := range items {
+		key, _ := items[i]["name"].(string)
+		acc, ok := accs[key]
+		if !ok {
+			continue
+		}
+		inRate, outRate := pricingFn(key)
+		items[i]["input_tokens"] = acc.inputTokens
+		items[i]["output_tokens"] = acc.outputTokens
+		items[i]["spend_cents"] = int64(float64(acc.inputTokens)*inRate/1_000_000*100) + int64(float64(acc.outputTokens)*outRate/1_000_000*100)
+	}
 }
 
 func collectMachineBucketData(intervals []heartbeatInterval, totalSeconds float64) ([]map[string]any, map[string]*bucketAccumulator) {

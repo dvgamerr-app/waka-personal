@@ -125,6 +125,10 @@ function WrappedContent({ config = {}, year }) {
       if (!active) return
       setData(next)
       setLoading(false)
+      const cmdEl = document.getElementById('shell-command')
+      if (cmdEl) cmdEl.textContent = `wrapped --year=${selectedYear}`
+      const subtitleEl = document.getElementById('shell-subtitle')
+      if (subtitleEl) subtitleEl.textContent = `Annual Telemetry Compilation · ${selectedYear} Year-in-Code Report`
       const metaEl = document.getElementById('shell-meta')
       if (metaEl) {
         const compiledDate =
@@ -166,8 +170,12 @@ function WrappedContent({ config = {}, year }) {
     [months]
   )
 
-  const aiTotal = (Number(rangeStats?.aiAdditions) || 0) + (Number(rangeStats?.aiDeletions) || 0)
-  const humanTotal = (Number(rangeStats?.humanAdditions) || 0) + (Number(rangeStats?.humanDeletions) || 0)
+  const aiTotal =
+    (Number(rangeStats?.aiAdditions) || Number(data.stats?.ai_additions) || 0) +
+    (Number(rangeStats?.aiDeletions) || Number(data.stats?.ai_deletions) || 0)
+  const humanTotal =
+    (Number(rangeStats?.humanAdditions) || Number(data.stats?.human_additions) || 0) +
+    (Number(rangeStats?.humanDeletions) || Number(data.stats?.human_deletions) || 0)
   const aiMultiplier = humanTotal > 0 ? (aiTotal / humanTotal).toFixed(1) : null
   const totalHours = Math.round((rangeStats?.totalSeconds || 0) / 3600)
   const linesPerDay = rangeStats?.activeDays > 0 ? Math.round(aiTotal / rangeStats.activeDays) : 0
@@ -183,8 +191,7 @@ function WrappedContent({ config = {}, year }) {
     [summaries]
   )
   const totalTokens = totalInputTokens + totalOutputTokens
-  // Claude Sonnet pricing: $3/$15 per MTok = 0.0003/0.0015 cents per token
-  const spendCents = Math.round(totalInputTokens * 0.0003 + totalOutputTokens * 0.0015)
+  const spendCents = data.spendMetrics?.estimated_cents || 0
 
   // Longest streak
   const longestStreak = useMemo(() => {
@@ -328,19 +335,36 @@ function WrappedContent({ config = {}, year }) {
             // SYNTAX_OPS · WRAPPED · {selectedYear}
           </div>
           <h2 className="mb-2 text-4xl font-medium tracking-tight text-zinc-100 md:text-5xl">
-            You shipped <span className="text-sky-300">{formatCount(aiTotal)}</span> lines this year.
+            {aiTotal > 0 ? (
+              <>You shipped <span className="text-sky-300">{formatCount(aiTotal)}</span> lines this year.</>
+            ) : (
+              <>You coded <span className="text-sky-300">{totalHours.toLocaleString()}h</span> this year.</>
+            )}
           </h2>
           <p className="max-w-[60ch] text-sm text-zinc-400">
-            That's roughly{' '}
-            <span className="text-zinc-200">{linesPerDay.toLocaleString()} lines per day</span>,
-            sustained across{' '}
-            <span className="text-zinc-200">{projects.length} projects</span>
-            {machineCount > 0 && (
-              <> and <span className="text-zinc-200">{machineCount} agent stations</span></>
-            )}
-            .
-            {aiMultiplier && (
-              <> Your AI multiplier landed at <span className="text-sky-300">{aiMultiplier}x</span>.</>
+            {aiTotal > 0 ? (
+              <>
+                That's roughly{' '}
+                <span className="text-zinc-200">{linesPerDay.toLocaleString()} lines per day</span>,
+                sustained across{' '}
+                <span className="text-zinc-200">{projects.length} projects</span>
+                {machineCount > 0 && (
+                  <> and <span className="text-zinc-200">{machineCount} agent stations</span></>
+                )}
+                .
+                {aiMultiplier && (
+                  <> Your AI multiplier landed at <span className="text-sky-300">{aiMultiplier}x</span>.</>
+                )}
+              </>
+            ) : (
+              <>
+                Across <span className="text-zinc-200">{rangeStats?.activeDays || 0} active days</span>
+                {' '}and <span className="text-zinc-200">{projects.length} projects</span>
+                {machineCount > 0 && (
+                  <> on <span className="text-zinc-200">{machineCount} machines</span></>
+                )}
+                . AI line tracking was not available for {selectedYear}.
+              </>
             )}
           </p>
         </div>
@@ -403,7 +427,7 @@ function WrappedContent({ config = {}, year }) {
               </SectionTitle>
               <div className="flex h-48 items-stretch gap-2">
                 {months.map((month, i) => {
-                  const pct = Math.max(4, (month.seconds / maxMonth) * 100)
+                  const pct = month.seconds > 0 ? Math.max(4, (month.seconds / maxMonth) * 100) : 0
                   const isPeak = i === peakMonthIdx && month.seconds > 0
                   return (
                     <div key={month.label} className="flex min-w-0 flex-1 flex-col items-center gap-2 group">
