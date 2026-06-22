@@ -1,7 +1,8 @@
 ---
 import Layout from '@/layouts/Layout.astro'
 import SyntaxShell from '@/components/dashboard/SyntaxShell.astro'
-import Wrapped from '@/components/dashboard/Wrapped'
+import WrappedView from '@/components/dashboard/Wrapped'
+import YearPicker from '@/components/dashboard/YearPicker'
 
 const year = new Date().getFullYear()
 const dashboardConfig = {
@@ -14,9 +15,10 @@ const dashboardConfig = {
   <SyntaxShell
     active="wrapped"
     command={`wrapped --year=${year}`}
-    subtitle={`${year} Year-in-Code Compilation`}
+    subtitle={`Annual Telemetry Compilation · ${year} Year-in-Code Report`}
     meta={[`Timezone: ${dashboardConfig.timezone}`]}
   >
-    <Wrapped client:load config={dashboardConfig} year={year} />
+    <YearPicker client:load slot="nav-right" />
+    <WrappedView client:load config={dashboardConfig} year={year} />
   </SyntaxShell>
 </Layout>

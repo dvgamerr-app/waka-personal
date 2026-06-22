@@ -911,29 +911,57 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 			year = time.Now().In(loc).Format("2006")
 		}
 
-		summaries, err := query.Summaries(c.Context(), domain.SummaryQueryParams{
-			Range:    year,
-			Timezone: timezone,
-		})
-		if err != nil {
-			return err
+		type statsResult struct {
+			data map[string]any
+			err  error
 		}
-		if summaries == nil {
-			summaries = []map[string]any{}
+		type listResult struct {
+			data []map[string]any
+			err  error
 		}
 
-		stats := fiber.Map{}
-		tokens := tokenMetrics(stats)
+		statsCh := make(chan statsResult, 1)
+		summariesCh := make(chan listResult, 1)
+
+		go func() {
+			v, e := query.Stats(c.Context(), domain.StatsQueryParams{Range: year, Timezone: timezone})
+			statsCh <- statsResult{v, e}
+		}()
+		go func() {
+			v, e := query.Summaries(c.Context(), domain.SummaryQueryParams{Range: year, Timezone: timezone})
+			summariesCh <- listResult{v, e}
+		}()
+
+		statsRes := <-statsCh
+		summariesRes := <-summariesCh
+
+		var apiErrors []string
+		if statsRes.err != nil {
+			apiErrors = append(apiErrors, statsRes.err.Error())
+		}
+		if summariesRes.err != nil {
+			apiErrors = append(apiErrors, summariesRes.err.Error())
+		}
+		if statsRes.data == nil {
+			statsRes.data = map[string]any{}
+		}
+		if summariesRes.data == nil {
+			summariesRes.data = []map[string]any{}
+		}
+
+		tokens := tokenMetrics(statsRes.data)
 		spend := spendMetrics(tokens)
 
 		return c.JSON(fiber.Map{
 			"timezone":      timezone,
 			"year":          year,
-			"stats":         stats,
-			"summaries":     summaries,
+			"stats":         statsRes.data,
+			"summaries":     summariesRes.data,
 			"token_metrics": tokens,
 			"spend_metrics": spend,
+			"total_days":    len(summariesRes.data),
 			"generated_at":  time.Now().UTC().Format(time.RFC3339),
+			"errors":        apiErrors,
 		})
 	}
 }

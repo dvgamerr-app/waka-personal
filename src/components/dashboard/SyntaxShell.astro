@@ -3,7 +3,7 @@ const {
   active = 'dashboard',
   command = 'activity_overview',
   subtitle = '',
-  meta = [],
+  meta = [] as string[],
 } = Astro.props
 
 const links = [
@@ -52,6 +52,7 @@ const links = [
           }
         </div>
       </div>
+      <slot name="nav-right" />
     </div>
   </nav>
 
