@@ -1,4 +1,4 @@
-version: "2"
+version: '2'
 output:
   sort-order:
     - linter
@@ -71,7 +71,7 @@ linters:
       excludes:
         - G104
       config:
-        G306: "0640"
+        G306: '0640'
     govet:
       disable:
         - fieldalignment

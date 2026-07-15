@@ -21,12 +21,13 @@ const LOAD_BG = [
   `bg-white/50 ${CELL_BASE}`,
   `bg-white/80 ${CELL_BASE}`,
 ]
-const toLoad = (t) => t < 0.05 ? 0 : t < 0.3 ? 1 : t < 0.55 ? 2 : t < 0.8 ? 3 : 4
+const toLoad = (t) => (t < 0.05 ? 0 : t < 0.3 ? 1 : t < 0.55 ? 2 : t < 0.8 ? 3 : 4)
 
 // bimodal hour distribution: morning ~10h, evening ~21h
-const _hw = Array.from({ length: 24 }, (_, h) =>
-  Math.exp(-0.5 * ((h - 10) / 2) ** 2) * 0.35 +
-  Math.exp(-0.5 * ((h - 21) / 2.5) ** 2) * 0.65,
+const _hw = Array.from(
+  { length: 24 },
+  (_, h) =>
+    Math.exp(-0.5 * ((h - 10) / 2) ** 2) * 0.35 + Math.exp(-0.5 * ((h - 21) / 2.5) ** 2) * 0.65
 )
 const hourProbs = _hw.map((w) => w / _hw.reduce((s, v) => s + v, 0))
 
@@ -55,7 +56,10 @@ const CAT_TO_INTENT = {
 const buildWorkDist = (categories) => {
   const buckets = { GENERATION: 0, REFACTOR: 0, DEBUG: 0, REVIEW: 0 }
   for (const c of categories) buckets[CAT_TO_INTENT[c.name] || 'GENERATION'] += c.total_seconds
-  const total = Math.max(1, Object.values(buckets).reduce((s, v) => s + v, 0))
+  const total = Math.max(
+    1,
+    Object.values(buckets).reduce((s, v) => s + v, 0)
+  )
   return Object.entries(buckets)
     .map(([name, sec]) => ({ name, pct: Math.round((sec / total) * 100) }))
     .filter((d) => d.pct > 0)
@@ -110,7 +114,14 @@ const loadInsights = async ({ base, timezone }) => {
     params: { range: 'Last Week', timezone },
   })
   if (error || !data)
-    return { timezone, summaries: [], stats: {}, tokenMetrics: {}, spendMetrics: {}, errors: [error || 'Failed to load insights'] }
+    return {
+      timezone,
+      summaries: [],
+      stats: {},
+      tokenMetrics: {},
+      spendMetrics: {},
+      errors: [error || 'Failed to load insights'],
+    }
   return {
     timezone: data.timezone || timezone,
     summaries: data.summaries || [],
@@ -129,7 +140,14 @@ function InsightsContent({ config = {} }) {
   const effectiveConfig = { ...config, ...runtimeConfig }
   const tz = effectiveConfig.timezone || detectTimezone()
 
-  const [raw, setRaw] = useState({ timezone: tz, summaries: [], stats: {}, tokenMetrics: {}, spendMetrics: {}, errors: [] })
+  const [raw, setRaw] = useState({
+    timezone: tz,
+    summaries: [],
+    stats: {},
+    tokenMetrics: {},
+    spendMetrics: {},
+    errors: [],
+  })
   const [loading, setLoading] = useState(true)
   const [refreshTime, setRefreshTime] = useState('')
 
@@ -139,9 +157,13 @@ function InsightsContent({ config = {} }) {
       if (!active) return
       setRaw(next)
       setLoading(false)
-      setRefreshTime(new Date().toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }) + ' GMT')
+      setRefreshTime(
+        new Date().toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }) + ' GMT'
+      )
     })
-    return () => { active = false }
+    return () => {
+      active = false
+    }
   }, [effectiveConfig.apiBase, tz])
 
   const summaries = useMemo(() => normalizeItems(raw.summaries), [raw.summaries])
@@ -151,7 +173,10 @@ function InsightsContent({ config = {} }) {
   const aiTotal = (rs?.aiAdditions || 0) + (rs?.aiDeletions || 0)
   const humanTotal = (rs?.humanAdditions || 0) + (rs?.humanDeletions || 0)
   const aiMult = humanTotal > 0 ? (aiTotal / humanTotal).toFixed(1) : '0.0'
-  const focusScore = Math.min(100, Math.round((rs?.activeDays || 0) * 100 / Math.max(1, rs?.totalDays || 7)))
+  const focusScore = Math.min(
+    100,
+    Math.round(((rs?.activeDays || 0) * 100) / Math.max(1, rs?.totalDays || 7))
+  )
   const contextSwitches = rs?.projects?.length || 0
 
   const heatmap = useMemo(() => buildHeatmap(trend), [trend])
@@ -161,7 +186,8 @@ function InsightsContent({ config = {} }) {
   const anomalies = useMemo(() => buildAnomalies(rs, raw.spendMetrics), [rs, raw.spendMetrics])
 
   const longestRun = rs?.bestDay?.text || '—'
-  const idleRatio = rs?.totalDays > 0 ? Math.round(((rs.totalDays - rs.activeDays) / rs.totalDays) * 100) : 0
+  const idleRatio =
+    rs?.totalDays > 0 ? Math.round(((rs.totalDays - rs.activeDays) / rs.totalDays) * 100) : 0
   const multiProjectSessions = summaries.filter((d) => normalizeItems(d.projects).length > 1).length
 
   const topEditor = topItems(rs?.editors, 1)[0]
@@ -169,9 +195,17 @@ function InsightsContent({ config = {} }) {
 
   const kpis = [
     { label: 'FOCUS SCORE', value: `${focusScore} / 100`, note: 'Top quartile this month' },
-    { label: 'CONTEXT SWITCHES', value: contextSwitches, note: `${rs?.activeDays || 0} active days tracked` },
+    {
+      label: 'CONTEXT SWITCHES',
+      value: contextSwitches,
+      note: `${rs?.activeDays || 0} active days tracked`,
+    },
     { label: 'AI MULTIPLIER', value: `${aiMult}x`, note: 'AI lines / human edits' },
-    { label: 'AVG SESSION', value: formatShortDuration(rs?.dailyAvgSeconds || 0), note: `${rs?.activeDays || 0} sessions tracked` },
+    {
+      label: 'AVG SESSION',
+      value: formatShortDuration(rs?.dailyAvgSeconds || 0),
+      note: `${rs?.activeDays || 0} sessions tracked`,
+    },
   ]
 
   const envelopeRows = [
@@ -193,7 +227,11 @@ function InsightsContent({ config = {} }) {
       {raw.errors.length > 0 && (
         <div className="mb-6 flex gap-3 border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-amber-200">
           <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
-          <div>{raw.errors.map((e) => <p key={e}>{e}</p>)}</div>
+          <div>
+            {raw.errors.map((e) => (
+              <p key={e}>{e}</p>
+            ))}
+          </div>
         </div>
       )}
 
@@ -202,7 +240,9 @@ function InsightsContent({ config = {} }) {
         {kpis.map((kpi) => (
           <div key={kpi.label} className={`${PANEL} p-4`}>
             <div className={`${LABEL} mb-3`}>{kpi.label}</div>
-            <div className="text-3xl font-medium leading-none text-zinc-100">{loading ? '—' : kpi.value}</div>
+            <div className="text-3xl leading-none font-medium text-zinc-100">
+              {loading ? '—' : kpi.value}
+            </div>
             <div className="mt-3 text-[11px] text-zinc-600">{kpi.note}</div>
           </div>
         ))}
@@ -211,13 +251,12 @@ function InsightsContent({ config = {} }) {
       <div className="grid grid-cols-12 gap-4">
         {/* Left */}
         <div className="col-span-12 space-y-4 lg:col-span-8">
-
           {/* Heatmap */}
           <section className={`${PANEL} p-5`}>
             <div className={`${LABEL} mb-4`}>▪ ACTIVITY_HEATMAP // 7D × 24H</div>
             <div className="space-y-1">
               {/* hour header */}
-              <div className="flex gap-1 pl-10 text-[9px] text-zinc-600 mb-1">
+              <div className="mb-1 flex gap-1 pl-10 text-[9px] text-zinc-600">
                 {Array.from({ length: 24 }, (_, h) => (
                   <div key={h} className="flex-1 text-center tabular-nums">
                     {HOUR_MARKERS.has(h) ? String(h).padStart(2, '0') : ''}
@@ -227,17 +266,25 @@ function InsightsContent({ config = {} }) {
               {/* day rows */}
               {heatmap.map((day, i) => (
                 <div key={i} className="flex items-center gap-1">
-                  <span className="text-[10px] text-zinc-500 w-9 uppercase">{day.label}</span>
+                  <span className="w-9 text-[10px] text-zinc-500 uppercase">{day.label}</span>
                   {day.hours.map((val, h) => {
                     const load = toLoad(hmMax > 0 ? val / hmMax : 0)
-                    return <div key={h} title={`${day.label} ${h}:00 — load ${load}`} className={`flex-1 aspect-square ${LOAD_BG[load]}`} />
+                    return (
+                      <div
+                        key={h}
+                        title={`${day.label} ${h}:00 — load ${load}`}
+                        className={`aspect-square flex-1 ${LOAD_BG[load]}`}
+                      />
+                    )
                   })}
                 </div>
               ))}
               {/* legend */}
               <div className="flex items-center gap-2 pt-3 text-[10px] text-zinc-600 uppercase">
                 <span>Cold</span>
-                {LOAD_BG.map((c, i) => <div key={i} className={`size-3 ${c}`} />)}
+                {LOAD_BG.map((c, i) => (
+                  <div key={i} className={`size-3 ${c}`} />
+                ))}
                 <span>Hot</span>
               </div>
             </div>
@@ -268,7 +315,6 @@ function InsightsContent({ config = {} }) {
 
         {/* Right */}
         <aside className="col-span-12 space-y-4 lg:col-span-4">
-
           {/* Anomaly Feed */}
           <section className={`${PANEL} p-5`}>
             <div className={`${LABEL} mb-4`}>▪ ANOMALY_FEED</div>
@@ -304,14 +350,23 @@ function InsightsContent({ config = {} }) {
           <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
           NODE STATUS: <span className="text-zinc-400">SYNCHRONIZED</span>
         </span>
-        {topMachine && <span>MACHINE: <span className="text-zinc-400">{topMachine.name}</span></span>}
+        {topMachine && (
+          <span>
+            MACHINE: <span className="text-zinc-400">{topMachine.name}</span>
+          </span>
+        )}
         {topEditor && (
           <span>
-            EDITOR: <span className="text-zinc-400">{topEditor.name} ({Math.round(topEditor.percent)}%)</span>
+            EDITOR:{' '}
+            <span className="text-zinc-400">
+              {topEditor.name} ({Math.round(topEditor.percent)}%)
+            </span>
           </span>
         )}
         {refreshTime && (
-          <span className="ml-auto">LAST_REFRESH: <span className="text-zinc-400">{refreshTime}</span></span>
+          <span className="ml-auto">
+            LAST_REFRESH: <span className="text-zinc-400">{refreshTime}</span>
+          </span>
         )}
       </div>
     </div>

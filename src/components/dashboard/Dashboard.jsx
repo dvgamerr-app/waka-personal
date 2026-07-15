@@ -126,7 +126,8 @@ const formatBestDay = (date) => {
   const mon = d.toLocaleDateString('en-US', { month: 'short' })
   const day = d.getDate()
   const n = day % 10
-  const suffix = day > 10 && day < 14 ? 'th' : n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'
+  const suffix =
+    day > 10 && day < 14 ? 'th' : n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'
   return `${dow} ${mon} ${day}${suffix}`
 }
 
@@ -221,7 +222,7 @@ const KpiPanel = ({ label, value, note, icon: Icon, accent = ACCENT }) => (
 )
 
 const SectionTitle = ({ children }) => (
-  <h2 className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400/80">
+  <h2 className="mb-5 flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-zinc-400/80 uppercase">
     <span className="h-1.5 w-1.5 bg-zinc-600" />
     {children}
   </h2>
@@ -244,7 +245,7 @@ const DailyTrace = ({ series, title = 'DAILY_ACTIVITY_TRACE', showWeekday = true
       ) : (
         <div className="flex h-48 items-end gap-2 md:gap-3">
           {series.map((day) => {
-            const raw = (Number(day.totalSeconds) || 0) / maxSeconds * 100
+            const raw = ((Number(day.totalSeconds) || 0) / maxSeconds) * 100
             const height = raw > 0 ? Math.max(3, raw) : 0
             const isPeak = height >= 99
             return (
@@ -304,7 +305,9 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
 
       <div
         className="relative h-12 overflow-hidden border border-zinc-900"
-        style={{ background: `linear-gradient(to right, ${ACCENT} ${clampPercent(percent)}%, #27272a ${clampPercent(percent)}%)` }}
+        style={{
+          background: `linear-gradient(to right, ${ACCENT} ${clampPercent(percent)}%, #27272a ${clampPercent(percent)}%)`,
+        }}
       >
         {humanPercent > 0 && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-end px-3 text-[11px] text-zinc-500 uppercase">
@@ -377,7 +380,11 @@ const ProjectMetrics = ({ projects, summaries }) => {
               <div className="col-span-4">AI Density</div>
               <div className="col-span-2 text-right">Time</div>
               {hasTokens && <div className="col-span-1 text-right">Tokens</div>}
-              {hasSpend && <div className={hasTokens ? 'col-span-2 text-right' : 'col-span-3 text-right'}>Spend</div>}
+              {hasSpend && (
+                <div className={hasTokens ? 'col-span-2 text-right' : 'col-span-3 text-right'}>
+                  Spend
+                </div>
+              )}
               {!hasTokens && !hasSpend && <div className="col-span-3 text-right">Activity</div>}
             </div>
             <div className="divide-y divide-zinc-900/70">
@@ -413,7 +420,9 @@ const ProjectMetrics = ({ projects, summaries }) => {
                       </div>
                     )}
                     {hasSpend && (
-                      <div className={`${hasTokens ? 'col-span-2' : 'col-span-3'} text-right font-mono text-zinc-500 tabular-nums`}>
+                      <div
+                        className={`${hasTokens ? 'col-span-2' : 'col-span-3'} text-right font-mono text-zinc-500 tabular-nums`}
+                      >
                         {project.spend_cents > 0 ? formatSpend(project.spend_cents) : '-'}
                       </div>
                     )}
@@ -501,7 +510,11 @@ const AgentStations = ({ aiModels }) => {
                   </span>
                 </div>
                 <div className="grid grid-cols-2 text-[11px] text-zinc-500 uppercase">
-                  <div>{station.lines > 0 ? `${formatCount(station.lines)} Lines` : formatShortDuration(station.total_seconds)}</div>
+                  <div>
+                    {station.lines > 0
+                      ? `${formatCount(station.lines)} Lines`
+                      : formatShortDuration(station.total_seconds)}
+                  </div>
                   <div className="text-right">{formatPercent(station.percent)} Load</div>
                 </div>
               </div>
@@ -540,7 +553,9 @@ const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
         <>
           <div className="space-y-3">
             {rows.map((editor) => {
-              const pct = editor.percent ?? (total > 0 ? ((Number(editor.total_seconds) || 0) / total) * 100 : 0)
+              const pct =
+                editor.percent ??
+                (total > 0 ? ((Number(editor.total_seconds) || 0) / total) * 100 : 0)
               return (
                 <div key={editor.name} className="text-xs">
                   <div className="mb-1 flex items-center gap-2">
@@ -565,7 +580,11 @@ const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
               </div>
               <div>
                 <div className="mb-1 tracking-[0.18em] uppercase">Machines</div>
-                <div>{machineCount != null ? `${machineCount} node${machineCount === 1 ? '' : 's'} online` : '–'}</div>
+                <div>
+                  {machineCount != null
+                    ? `${machineCount} node${machineCount === 1 ? '' : 's'} online`
+                    : '–'}
+                </div>
               </div>
             </div>
           )}
@@ -576,9 +595,7 @@ const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
 }
 
 const EmptyState = ({ label }) => (
-  <div className="border border-dashed border-zinc-800 p-8 text-sm text-zinc-600">
-    {label}
-  </div>
+  <div className="border border-dashed border-zinc-800 p-8 text-sm text-zinc-600">{label}</div>
 )
 
 export default function Dashboard({ config = {} }) {
@@ -669,7 +686,11 @@ function DashboardContent({ config }) {
   useEffect(() => {
     fetchDashboard(
       initialCustomRange
-        ? { range: null, start: initialCustomRange.from.toISOString().slice(0, 10), end: initialCustomRange.to.toISOString().slice(0, 10) }
+        ? {
+            range: null,
+            start: initialCustomRange.from.toISOString().slice(0, 10),
+            end: initialCustomRange.to.toISOString().slice(0, 10),
+          }
         : { range: selectedRange }
     )
   }, [])
@@ -721,12 +742,18 @@ function DashboardContent({ config }) {
   const topAiModels = useMemo(() => {
     if (rangeStats?.aiModels?.length) return topItems(rangeStats.aiModels, 4)
     const models = normalizeItems(stats.ai_models)
-    const total = models.reduce((s, m) => s + (Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0), 0)
+    const total = models.reduce(
+      (s, m) => s + (Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0),
+      0
+    )
     return topItems(
       models.map((m) => ({
         ...m,
         lines: (Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0),
-        percent: total > 0 ? (((Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0)) / total) * 100 : 0,
+        percent:
+          total > 0
+            ? (((Number(m.ai_additions) || 0) + (Number(m.ai_deletions) || 0)) / total) * 100
+            : 0,
       })),
       4
     )
@@ -771,10 +798,14 @@ function DashboardContent({ config }) {
   return (
     <div className="dark min-h-screen bg-zinc-950 font-mono text-zinc-100 selection:bg-sky-300/30">
       <nav className="sticky top-0 z-50 border-b border-zinc-900 bg-zinc-950/85 backdrop-blur-sm">
-        <div className="md:hidden flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-500 uppercase">
+        <div className="flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-500 uppercase md:hidden">
           <span className="text-sky-300">Dashboard</span>
-          <a href="/insights" className="transition-colors hover:text-zinc-100">Insights</a>
-          <a href="/wrapped" className="transition-colors hover:text-zinc-100">Wrapped</a>
+          <a href="/insights" className="transition-colors hover:text-zinc-100">
+            Insights
+          </a>
+          <a href="/wrapped" className="transition-colors hover:text-zinc-100">
+            Wrapped
+          </a>
         </div>
         <div className="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-4 px-4">
           <div className="flex min-w-0 items-center gap-6">
@@ -801,12 +832,18 @@ function DashboardContent({ config }) {
                 {loading ? 'Syncing' : 'Live tick'}
               </span>
             )}
-            <DateRangePicker value={selectedRange} onChange={handleRangeChange} initialCustomRange={initialCustomRange} />
+            <DateRangePicker
+              value={selectedRange}
+              onChange={handleRangeChange}
+              initialCustomRange={initialCustomRange}
+            />
           </div>
         </div>
       </nav>
 
-      <main className={`mx-auto max-w-[1600px] p-4 md:p-6 lg:p-8 transition-opacity duration-200 ${loading ? 'opacity-50' : ''}`}>
+      <main
+        className={`mx-auto max-w-[1600px] p-4 transition-opacity duration-200 md:p-6 lg:p-8 ${loading ? 'opacity-50' : ''}`}
+      >
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-medium tracking-tight text-zinc-100 md:text-3xl">
@@ -830,17 +867,23 @@ function DashboardContent({ config }) {
         {errors.length > 0 && (
           <div className="mb-6 flex gap-3 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
             <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
-            <div>{errors.map((error, i) => <p key={i}>{error}</p>)}</div>
+            <div>
+              {errors.map((error, i) => (
+                <p key={i}>{error}</p>
+              ))}
+            </div>
           </div>
         )}
 
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
           <KpiPanel
             label="Active Time"
-            value={normalizeWakaTime(
-              stats.human_readable_total_including_other_language ||
-              rangeStats?.humanReadableTotal
-            ) || '-'}
+            value={
+              normalizeWakaTime(
+                stats.human_readable_total_including_other_language ||
+                  rangeStats?.humanReadableTotal
+              ) || '-'
+            }
             note={`Avg: ${normalizeWakaTime(rangeStats?.humanReadableDailyAvg || stats.human_readable_daily_average_including_other_language) || '0m'} / active day`}
             icon={Activity}
           />

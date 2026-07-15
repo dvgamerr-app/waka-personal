@@ -33,9 +33,7 @@ export default function YearPicker() {
       >
         <ChevronLeft size={14} />
       </button>
-      <span className="border-x border-zinc-800 px-3 py-1.5 font-mono text-zinc-300">
-        {year}
-      </span>
+      <span className="border-x border-zinc-800 px-3 py-1.5 font-mono text-zinc-300">{year}</span>
       <button
         type="button"
         className="flex h-8 w-8 items-center justify-center transition-colors hover:text-sky-300 disabled:cursor-not-allowed disabled:text-zinc-700"

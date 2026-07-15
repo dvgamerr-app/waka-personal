@@ -15,7 +15,7 @@ import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 const PANEL = 'ring-1 ring-zinc-900 bg-zinc-950/80 p-6 rounded-none'
 
 const SectionTitle = ({ children }) => (
-  <h3 className="text-sm font-medium text-zinc-400 mb-6 flex items-center gap-2">
+  <h3 className="mb-6 flex items-center gap-2 text-sm font-medium text-zinc-400">
     <div className="size-1 bg-zinc-600" />
     {children}
   </h3>
@@ -128,7 +128,8 @@ function WrappedContent({ config = {}, year }) {
       const cmdEl = document.getElementById('shell-command')
       if (cmdEl) cmdEl.textContent = `wrapped --year=${selectedYear}`
       const subtitleEl = document.getElementById('shell-subtitle')
-      if (subtitleEl) subtitleEl.textContent = `Annual Telemetry Compilation · ${selectedYear} Year-in-Code Report`
+      if (subtitleEl)
+        subtitleEl.textContent = `Annual Telemetry Compilation · ${selectedYear} Year-in-Code Report`
       const metaEl = document.getElementById('shell-meta')
       if (metaEl) {
         const compiledDate =
@@ -158,7 +159,9 @@ function WrappedContent({ config = {}, year }) {
     return Array.from({ length: 12 }, (_, i) => {
       const month = String(i + 1).padStart(2, '0')
       return {
-        label: new Date(`${data.year}-${month}-01T00:00:00`).toLocaleDateString('en-US', { month: 'short' }),
+        label: new Date(`${data.year}-${month}-01T00:00:00`).toLocaleDateString('en-US', {
+          month: 'short',
+        }),
         seconds: buckets.get(month) || 0,
       }
     })
@@ -195,7 +198,11 @@ function WrappedContent({ config = {}, year }) {
 
   // Longest streak
   const longestStreak = useMemo(() => {
-    let max = 0, cur = 0, streakStart = null, bestStart = null, bestEnd = null
+    let max = 0,
+      cur = 0,
+      streakStart = null,
+      bestStart = null,
+      bestEnd = null
     const sorted = [...summaries].sort((a, b) =>
       (a.range?.date || '').localeCompare(b.range?.date || '')
     )
@@ -203,7 +210,11 @@ function WrappedContent({ config = {}, year }) {
       if ((Number(day.grand_total?.total_seconds) || 0) > 0) {
         if (cur === 0) streakStart = day.range?.date
         cur++
-        if (cur > max) { max = cur; bestStart = streakStart; bestEnd = day.range?.date }
+        if (cur > max) {
+          max = cur
+          bestStart = streakStart
+          bestEnd = day.range?.date
+        }
       } else {
         cur = 0
       }
@@ -231,7 +242,10 @@ function WrappedContent({ config = {}, year }) {
   const aiModelLeaderboard = useMemo(() => {
     const models = normalizeItems(rangeStats?.aiModels)
     if (!models.length) return []
-    const totalLines = Math.max(1, models.reduce((s, m) => s + m.lines, 0))
+    const totalLines = Math.max(
+      1,
+      models.reduce((s, m) => s + m.lines, 0)
+    )
     return models.slice(0, 4).map((m) => ({
       name: m.name,
       lines: m.lines,
@@ -252,10 +266,9 @@ function WrappedContent({ config = {}, year }) {
       {
         key: '[LONGEST_STREAK]',
         value: longestStreak.days > 0 ? `${longestStreak.days} days` : '—',
-        note:
-          longestStreak.start
-            ? `${fmtDate(longestStreak.start)} → ${fmtDate(longestStreak.end)}`
-            : 'No streak data',
+        note: longestStreak.start
+          ? `${fmtDate(longestStreak.start)} → ${fmtDate(longestStreak.end)}`
+          : 'No streak data',
       },
       {
         key: '[TOP_PROJECT]',
@@ -267,7 +280,9 @@ function WrappedContent({ config = {}, year }) {
       {
         key: '[FAVORITE_LANGUAGE]',
         value: topLanguage?.name || '—',
-        note: topLanguage ? `${formatPercent(topLanguage.percent)} of focus time` : 'No language data',
+        note: topLanguage
+          ? `${formatPercent(topLanguage.percent)} of focus time`
+          : 'No language data',
       },
       {
         key: '[PEAK_MONTH]',
@@ -283,7 +298,16 @@ function WrappedContent({ config = {}, year }) {
         note: firstActiveDay ? `First session of ${selectedYear}` : 'No data',
       },
     ],
-    [rangeStats, longestStreak, topProject, topLanguage, months, peakMonthIdx, firstActiveDay, selectedYear]
+    [
+      rangeStats,
+      longestStreak,
+      topProject,
+      topLanguage,
+      months,
+      peakMonthIdx,
+      firstActiveDay,
+      selectedYear,
+    ]
   )
 
   // Milestones
@@ -327,18 +351,24 @@ function WrappedContent({ config = {}, year }) {
     <>
       {/* Hero banner */}
       <section className="relative mb-6 overflow-hidden border border-sky-300/20 bg-gradient-to-br from-sky-300/5 to-transparent p-8">
-        <div className="pointer-events-none absolute inset-0 select-none overflow-hidden break-all font-mono text-[9px] leading-3 text-sky-300 opacity-[0.03] whitespace-pre-wrap">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden font-mono text-[9px] leading-3 break-all whitespace-pre-wrap text-sky-300 opacity-[0.03] select-none">
           {'01001000 01100101 01101100 01101100 01101111 '.repeat(600)}
         </div>
         <div className="relative">
-          <div className="mb-2 text-[10px] uppercase tracking-[0.3em] text-sky-300">
+          <div className="mb-2 text-[10px] tracking-[0.3em] text-sky-300 uppercase">
             // SYNTAX_OPS · WRAPPED · {selectedYear}
           </div>
           <h2 className="mb-2 text-4xl font-medium tracking-tight text-zinc-100 md:text-5xl">
             {aiTotal > 0 ? (
-              <>You shipped <span className="text-sky-300">{formatCount(aiTotal)}</span> lines this year.</>
+              <>
+                You shipped <span className="text-sky-300">{formatCount(aiTotal)}</span> lines this
+                year.
+              </>
             ) : (
-              <>You coded <span className="text-sky-300">{totalHours.toLocaleString()}h</span> this year.</>
+              <>
+                You coded <span className="text-sky-300">{totalHours.toLocaleString()}h</span> this
+                year.
+              </>
             )}
           </h2>
           <p className="max-w-[60ch] text-sm text-zinc-400">
@@ -346,22 +376,32 @@ function WrappedContent({ config = {}, year }) {
               <>
                 That's roughly{' '}
                 <span className="text-zinc-200">{linesPerDay.toLocaleString()} lines per day</span>,
-                sustained across{' '}
-                <span className="text-zinc-200">{projects.length} projects</span>
+                sustained across <span className="text-zinc-200">{projects.length} projects</span>
                 {machineCount > 0 && (
-                  <> and <span className="text-zinc-200">{machineCount} agent stations</span></>
+                  <>
+                    {' '}
+                    and <span className="text-zinc-200">{machineCount} agent stations</span>
+                  </>
                 )}
                 .
                 {aiMultiplier && (
-                  <> Your AI multiplier landed at <span className="text-sky-300">{aiMultiplier}x</span>.</>
+                  <>
+                    {' '}
+                    Your AI multiplier landed at{' '}
+                    <span className="text-sky-300">{aiMultiplier}x</span>.
+                  </>
                 )}
               </>
             ) : (
               <>
-                Across <span className="text-zinc-200">{rangeStats?.activeDays || 0} active days</span>
-                {' '}and <span className="text-zinc-200">{projects.length} projects</span>
+                Across{' '}
+                <span className="text-zinc-200">{rangeStats?.activeDays || 0} active days</span> and{' '}
+                <span className="text-zinc-200">{projects.length} projects</span>
                 {machineCount > 0 && (
-                  <> on <span className="text-zinc-200">{machineCount} machines</span></>
+                  <>
+                    {' '}
+                    on <span className="text-zinc-200">{machineCount} machines</span>
+                  </>
                 )}
                 . AI line tracking was not available for {selectedYear}.
               </>
@@ -373,7 +413,11 @@ function WrappedContent({ config = {}, year }) {
       {data.errors.length > 0 && (
         <div className="mb-6 flex gap-3 border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
-          <div>{data.errors.map((e) => <p key={e}>{e}</p>)}</div>
+          <div>
+            {data.errors.map((e) => (
+              <p key={e}>{e}</p>
+            ))}
+          </div>
         </div>
       )}
 
@@ -408,9 +452,9 @@ function WrappedContent({ config = {}, year }) {
                 : 'not tracked in heartbeats',
             ],
           ].map(([label, value, note]) => (
-            <section key={label} className="ring-1 ring-zinc-900 bg-zinc-950/80 p-4">
-              <span className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</span>
-              <div className="mt-1 text-3xl font-medium leading-none text-zinc-100">{value}</div>
+            <section key={label} className="bg-zinc-950/80 p-4 ring-1 ring-zinc-900">
+              <span className="text-[10px] tracking-wider text-zinc-500 uppercase">{label}</span>
+              <div className="mt-1 text-3xl leading-none font-medium text-zinc-100">{value}</div>
               <div className="mt-2 text-[11px] text-zinc-600">{note}</div>
             </section>
           ))}
@@ -419,24 +463,27 @@ function WrappedContent({ config = {}, year }) {
         {/* Bottom grid */}
         <div className="grid grid-cols-12 gap-6">
           {/* Left column */}
-          <div className="col-span-12 lg:col-span-8 space-y-6">
+          <div className="col-span-12 space-y-6 lg:col-span-8">
             {/* Monthly trace */}
             <section className={PANEL}>
-              <SectionTitle>
-                MONTHLY_TRACE // {formatCount(totalHours)}H
-              </SectionTitle>
+              <SectionTitle>MONTHLY_TRACE // {formatCount(totalHours)}H</SectionTitle>
               <div className="flex h-48 items-stretch gap-2">
                 {months.map((month, i) => {
                   const pct = month.seconds > 0 ? Math.max(4, (month.seconds / maxMonth) * 100) : 0
                   const isPeak = i === peakMonthIdx && month.seconds > 0
                   return (
-                    <div key={month.label} className="flex min-w-0 flex-1 flex-col items-center gap-2 group">
-                      <span className={`text-[10px] tabular-nums ${isPeak ? 'text-sky-300' : 'text-zinc-600'}`}>
+                    <div
+                      key={month.label}
+                      className="group flex min-w-0 flex-1 flex-col items-center gap-2"
+                    >
+                      <span
+                        className={`text-[10px] tabular-nums ${isPeak ? 'text-sky-300' : 'text-zinc-600'}`}
+                      >
                         {Math.round(month.seconds / 3600)}h
                       </span>
-                      <div className="w-full flex-1 bg-zinc-900/40 relative overflow-hidden rounded-sm">
+                      <div className="relative w-full flex-1 overflow-hidden rounded-sm bg-zinc-900/40">
                         <div
-                          className={`absolute bottom-0 left-0 right-0 transition-all ${isPeak ? 'bg-sky-300' : 'bg-sky-300/30'}`}
+                          className={`absolute right-0 bottom-0 left-0 transition-all ${isPeak ? 'bg-sky-300' : 'bg-sky-300/30'}`}
                           style={{ height: `${pct}%` }}
                         />
                       </div>
@@ -450,15 +497,17 @@ function WrappedContent({ config = {}, year }) {
             {/* Superlatives */}
             <section className={PANEL}>
               <SectionTitle>SUPERLATIVES</SectionTitle>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {superlatives.map(({ key, value, note }) => (
                   <div
                     key={key}
-                    className="p-3 ring-1 ring-zinc-900 hover:ring-sky-300/30 transition-colors rounded-none bg-zinc-900/20"
+                    className="rounded-none bg-zinc-900/20 p-3 ring-1 ring-zinc-900 transition-colors hover:ring-sky-300/30"
                   >
-                    <div className="text-[10px] text-sky-300 uppercase tracking-widest mb-1">{key}</div>
-                    <div className="text-lg text-zinc-100 font-medium">{value}</div>
-                    <div className="text-[10px] text-zinc-500 mt-0.5">{note}</div>
+                    <div className="mb-1 text-[10px] tracking-widest text-sky-300 uppercase">
+                      {key}
+                    </div>
+                    <div className="text-lg font-medium text-zinc-100">{value}</div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">{note}</div>
                   </div>
                 ))}
               </div>
@@ -467,18 +516,18 @@ function WrappedContent({ config = {}, year }) {
             {/* Language distribution */}
             <section className={PANEL}>
               <SectionTitle>LANGUAGE_DISTRIBUTION</SectionTitle>
-              <div className="flex h-8 ring-1 ring-zinc-800 overflow-hidden mb-3 rounded-sm">
+              <div className="mb-3 flex h-8 overflow-hidden rounded-sm ring-1 ring-zinc-800">
                 {langBar.map((lang, i) => (
                   <div
                     key={lang.name}
-                    className={`h-full flex items-center justify-center text-[10px] uppercase ${LANG_BAR_CLASSES[i] || 'bg-zinc-800 text-zinc-500'}`}
+                    className={`flex h-full items-center justify-center text-[10px] uppercase ${LANG_BAR_CLASSES[i] || 'bg-zinc-800 text-zinc-500'}`}
                     style={{ width: `${lang.percent}%` }}
                   >
                     {lang.percent >= 8 ? lang.name : ''}
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-[10px] text-zinc-500 uppercase">
+              <div className="grid grid-cols-3 gap-2 text-[10px] text-zinc-500 uppercase md:grid-cols-6">
                 {langBar.map((lang) => (
                   <div key={lang.name} className="flex justify-between">
                     <span className="truncate">{lang.name}</span>
@@ -490,7 +539,7 @@ function WrappedContent({ config = {}, year }) {
           </div>
 
           {/* Right column */}
-          <div className="col-span-12 lg:col-span-4 space-y-6">
+          <div className="col-span-12 space-y-6 lg:col-span-4">
             {/* Agent leaderboard */}
             <section className={PANEL}>
               <SectionTitle>AGENT_LEADERBOARD</SectionTitle>
@@ -502,17 +551,17 @@ function WrappedContent({ config = {}, year }) {
                 <div className="space-y-3">
                   {aiModelLeaderboard.map((model, i) => (
                     <div key={model.name}>
-                      <div className="flex justify-between text-[11px] mb-1">
+                      <div className="mb-1 flex justify-between text-[11px]">
                         <span className="text-zinc-300">
-                          <span className="text-zinc-600 mr-2 tabular-nums">#{i + 1}</span>
+                          <span className="mr-2 text-zinc-600 tabular-nums">#{i + 1}</span>
                           {model.name}
                         </span>
                         <span className="text-sky-300 tabular-nums">{model.pct}%</span>
                       </div>
-                      <div className="h-1.5 bg-zinc-900 overflow-hidden">
+                      <div className="h-1.5 overflow-hidden bg-zinc-900">
                         <div className="h-full bg-sky-300" style={{ width: `${model.pct}%` }} />
                       </div>
-                      <div className="text-[10px] text-zinc-600 mt-0.5 tabular-nums">
+                      <div className="mt-0.5 text-[10px] text-zinc-600 tabular-nums">
                         {formatCount(model.lines)} lines
                       </div>
                     </div>
@@ -528,7 +577,7 @@ function WrappedContent({ config = {}, year }) {
                 {milestones.map(({ label, unlocked, date }) => (
                   <div
                     key={label}
-                    className="flex justify-between items-center border-b border-zinc-900/60 pb-1.5"
+                    className="flex items-center justify-between border-b border-zinc-900/60 pb-1.5"
                   >
                     <div className="flex items-center gap-2">
                       <span
@@ -546,20 +595,20 @@ function WrappedContent({ config = {}, year }) {
 
             {/* Share */}
             <section className={PANEL}>
-              <div className="text-center py-2">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4">
+              <div className="py-2 text-center">
+                <div className="mb-4 text-[10px] tracking-widest text-zinc-500 uppercase">
                   Share your wrapped
                 </div>
-                <div className="flex gap-2 justify-center">
+                <div className="flex justify-center gap-2">
                   <button
                     type="button"
-                    className="text-[10px] py-1.5 px-3 ring-1 ring-sky-300 bg-sky-300/10 text-sky-300 uppercase tracking-widest hover:bg-sky-300/20 transition-colors"
+                    className="bg-sky-300/10 px-3 py-1.5 text-[10px] tracking-widest text-sky-300 uppercase ring-1 ring-sky-300 transition-colors hover:bg-sky-300/20"
                   >
                     Export PNG
                   </button>
                   <button
                     type="button"
-                    className="text-[10px] py-1.5 px-3 ring-1 ring-zinc-800 text-zinc-400 uppercase tracking-widest hover:ring-zinc-700 transition-colors"
+                    className="px-3 py-1.5 text-[10px] tracking-widest text-zinc-400 uppercase ring-1 ring-zinc-800 transition-colors hover:ring-zinc-700"
                   >
                     Copy Link
                   </button>

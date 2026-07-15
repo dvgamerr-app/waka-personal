@@ -124,7 +124,7 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange, initi
         <div className="grid gap-4 md:grid-cols-[230px_minmax(0,1fr)]">
           <div className="border-border border-b p-4 md:border-r md:border-b-0">
             <PopoverHeader className="mb-4 gap-2">
-              <PopoverTitle className="text-xs font-semibold text-muted-foreground">
+              <PopoverTitle className="text-muted-foreground text-xs font-semibold">
                 Presets
               </PopoverTitle>
               <PopoverDescription className="text-xs">
@@ -155,14 +155,10 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange, initi
 
           <div className="flex min-w-0 flex-col">
             <div className="border-border border-b p-4">
-              <p className="text-muted-foreground text-xs font-semibold">
-                Custom Range
-              </p>
+              <p className="text-muted-foreground text-xs font-semibold">Custom Range</p>
               <p className="mt-2 text-sm font-medium">{draftLabel}</p>
               {!hasCompleteRange && (
-                <p className="text-muted-foreground mt-2 text-xs">
-                  Select both dates to continue.
-                </p>
+                <p className="text-muted-foreground mt-2 text-xs">Select both dates to continue.</p>
               )}
             </div>
 
@@ -181,13 +177,9 @@ export default function DateRangePicker({ value = 'Last 7 Days', onChange, initi
               <div className="min-w-0 text-xs">
                 {hasCompleteRange && (
                   <>
-                    <span className="font-medium">
-                      {format(draftRange.from, 'MMM d, yyyy')}
-                    </span>
+                    <span className="font-medium">{format(draftRange.from, 'MMM d, yyyy')}</span>
                     <span className="text-muted-foreground mx-2">→</span>
-                    <span className="font-medium">
-                      {format(draftRange.to, 'MMM d, yyyy')}
-                    </span>
+                    <span className="font-medium">{format(draftRange.to, 'MMM d, yyyy')}</span>
                   </>
                 )}
               </div>

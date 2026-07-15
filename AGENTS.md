@@ -1,5 +1,5 @@
-
 # Backend (Golang)
+
 ### Stack / Arch
 
 - **Go 1.26 + Fiber v2 + pgx/v5 + goose + zerolog**
@@ -39,9 +39,8 @@
 - Import backup: **`go run ./cmd/importer --file <path-to-backup.json>`**
 - Test all: **`go test ./...`**
 
-
-
 # Frontend (Javascript)
+
 ### Stack / Arch
 
 - **Bun + Astro (SSR/UI routing) + React (interactive UI, `.jsx`)**
@@ -68,8 +67,6 @@
 - `PUBLIC_API_BASE` — API origin (leave empty if frontend + API share same origin)
 - `PUBLIC_APP_TIMEZONE` — timezone for dashboard queries
 - `PUBLIC_APP_API_KEY` — same as backend `APP_API_KEY` when auth is enabled
-
-
 
 # Gotchas
 

@@ -374,7 +374,14 @@ export const computeRangeStats = (summaries) => {
               : totalAiSecs > 0
                 ? (m.total_seconds / totalAiSecs) * 100
                 : 0
-          return { name, total_seconds: m.total_seconds, lines, ai_additions: m.ai_additions, ai_deletions: m.ai_deletions, percent }
+          return {
+            name,
+            total_seconds: m.total_seconds,
+            lines,
+            ai_additions: m.ai_additions,
+            ai_deletions: m.ai_deletions,
+            percent,
+          }
         })
         .sort((a, b) => (totalLines > 0 ? b.lines - a.lines : b.total_seconds - a.total_seconds))
     })(),

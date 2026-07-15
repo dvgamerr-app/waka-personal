@@ -925,42 +925,31 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 			err  error
 		}
 
-		statsCh := make(chan statsResult, 1)
 		summariesCh := make(chan listResult, 1)
 
-		go func() {
-			v, e := query.Stats(c.Context(), domain.StatsQueryParams{Range: year, Timezone: timezone})
-			statsCh <- statsResult{v, e}
-		}()
 		go func() {
 			v, e := query.Summaries(c.Context(), domain.SummaryQueryParams{Range: year, Timezone: timezone})
 			summariesCh <- listResult{v, e}
 		}()
 
-		statsRes := <-statsCh
 		summariesRes := <-summariesCh
 
 		var apiErrors []string
-		if statsRes.err != nil {
-			apiErrors = append(apiErrors, statsRes.err.Error())
-		}
 		if summariesRes.err != nil {
 			apiErrors = append(apiErrors, summariesRes.err.Error())
-		}
-		if statsRes.data == nil {
-			statsRes.data = map[string]any{}
 		}
 		if summariesRes.data == nil {
 			summariesRes.data = []map[string]any{}
 		}
 
-		tokens := tokenMetrics(statsRes.data)
-		spend := spendMetrics(statsRes.data)
+		stats := wrappedStatsFromSummaries(summariesRes.data)
+		tokens := tokenMetrics(stats)
+		spend := spendMetrics(stats)
 
 		return c.JSON(fiber.Map{
 			"timezone":      timezone,
 			"year":          year,
-			"stats":         statsRes.data,
+			"stats":         stats,
 			"summaries":     summariesRes.data,
 			"token_metrics": tokens,
 			"spend_metrics": spend,
@@ -969,6 +958,124 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 			"errors":        apiErrors,
 		})
 	}
+}
+
+func wrappedStatsFromSummaries(summaries []map[string]any) map[string]any {
+	if len(summaries) == 0 {
+		return map[string]any{}
+	}
+
+	totalSeconds := 0.0
+	dailyAverage := 0.0
+	bestDaySeconds := 0.0
+	bestDayDate := ""
+	bestDayText := "0s"
+	activeDays := 0
+	var aiAdditions, aiDeletions, humanAdditions, humanDeletions int64
+	var aiInputTokens, aiOutputTokens int64
+
+	for _, summary := range summaries {
+		grandTotal := nestedMap(summary, "grand_total")
+		seconds := toFloat64(grandTotal["total_seconds"])
+		totalSeconds += seconds
+		if seconds > 0 {
+			activeDays++
+		}
+
+		aiAdditions += toInt64(grandTotal["ai_additions"])
+		aiDeletions += toInt64(grandTotal["ai_deletions"])
+		humanAdditions += toInt64(grandTotal["human_additions"])
+		humanDeletions += toInt64(grandTotal["human_deletions"])
+		aiInputTokens += toInt64(grandTotal["ai_input_tokens"])
+		aiOutputTokens += toInt64(grandTotal["ai_output_tokens"])
+
+		if seconds > bestDaySeconds {
+			bestDaySeconds = seconds
+			bestDayDate = nestedString(summary, "range", "date")
+			bestDayText = strings.TrimSpace(toString(grandTotal["text"]))
+			if bestDayText == "" {
+				bestDayText = humanizeTotalSeconds(seconds)
+			}
+		}
+	}
+
+	dailyAverage = totalSeconds / float64(len(summaries))
+
+	return map[string]any{
+		"total_seconds_including_other_language":                totalSeconds,
+		"human_readable_total_including_other_language":         humanizeTotalSeconds(totalSeconds),
+		"daily_average_including_other_language":                dailyAverage,
+		"human_readable_daily_average_including_other_language": humanizeTotalSeconds(dailyAverage),
+		"ai_additions":                                          aiAdditions,
+		"ai_deletions":                                          aiDeletions,
+		"human_additions":                                       humanAdditions,
+		"human_deletions":                                       humanDeletions,
+		"ai_input_tokens":                                       aiInputTokens,
+		"ai_output_tokens":                                      aiOutputTokens,
+		"ai_total_tokens":                                       aiInputTokens + aiOutputTokens,
+		"days_including_holidays":                               len(summaries),
+		"days_minus_holidays":                                   activeDays,
+		"best_day": map[string]any{
+			"date":          bestDayDate,
+			"text":          bestDayText,
+			"total_seconds": bestDaySeconds,
+		},
+	}
+}
+
+func nestedMap(values map[string]any, key string) map[string]any {
+	if values == nil {
+		return map[string]any{}
+	}
+	if nested, ok := values[key].(map[string]any); ok && nested != nil {
+		return nested
+	}
+	return map[string]any{}
+}
+
+func nestedString(values map[string]any, firstKey, secondKey string) string {
+	return toString(nestedMap(values, firstKey)[secondKey])
+}
+
+func toFloat64(v any) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case int32:
+		return float64(val)
+	default:
+		return 0
+	}
+}
+
+func toString(v any) string {
+	if value, ok := v.(string); ok {
+		return value
+	}
+	return ""
+}
+
+func humanizeTotalSeconds(totalSeconds float64) string {
+	seconds := int(totalSeconds + 0.5)
+	if seconds <= 0 {
+		return "0s"
+	}
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	remaining := seconds % 60
+	if hours > 0 {
+		return fmt.Sprintf("%dh %02dm", hours, minutes)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%ds", remaining)
 }
 
 func cacheControlMiddleware() fiber.Handler {

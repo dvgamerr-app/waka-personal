@@ -17,16 +17,20 @@ const links = [
   class="min-h-screen bg-zinc-950 font-mono text-zinc-300 selection:bg-sky-300/30 selection:text-white"
 >
   <nav class="sticky top-0 z-50 border-b border-zinc-900 bg-zinc-950/85 backdrop-blur-sm">
-    <div class="md:hidden flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-600 uppercase">
-      {links.map((link) => (
-        <a
-          href={link.href}
-          class={active === link.id ? 'text-sky-300' : 'transition-colors hover:text-zinc-300'}
-          aria-current={active === link.id ? 'page' : undefined}
-        >
-          {link.label}
-        </a>
-      ))}
+    <div
+      class="flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-600 uppercase md:hidden"
+    >
+      {
+        links.map((link) => (
+          <a
+            href={link.href}
+            class={active === link.id ? 'text-sky-300' : 'transition-colors hover:text-zinc-300'}
+            aria-current={active === link.id ? 'page' : undefined}
+          >
+            {link.label}
+          </a>
+        ))
+      }
     </div>
     <div class="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-4 px-4">
       <div class="flex min-w-0 items-center gap-6">
@@ -66,7 +70,9 @@ const links = [
         </h1>
         {
           subtitle && (
-            <p id="shell-subtitle" class="mt-1 text-xs tracking-[0.22em] text-zinc-500 uppercase">{subtitle}</p>
+            <p id="shell-subtitle" class="mt-1 text-xs tracking-[0.22em] text-zinc-500 uppercase">
+              {subtitle}
+            </p>
           )
         }
       </div>

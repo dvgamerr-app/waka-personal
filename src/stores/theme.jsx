@@ -8,7 +8,9 @@ export const ThemeProvider = ({ children }) => {
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false
     const stored = localStorage.getItem(THEME_KEY)
-    return stored !== null ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+    return stored !== null
+      ? stored === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches
   })
 
   useEffect(() => {
