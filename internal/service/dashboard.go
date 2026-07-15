@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -153,6 +154,7 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
 	aiModels, aiModelAccs := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
 	applyModelPricing(aiModels, aiModelAccs, settings.pricingFn)
+	applyModelDisplayNames(aiModels)
 
 	dayCount := daySpan(window.startLocal, window.endLocal)
 	activeDayCount := activeDays(days)
@@ -449,6 +451,7 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
 	aiModels, aiModelAccs := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
 	applyModelPricing(aiModels, aiModelAccs, settings.pricingFn)
+	applyModelDisplayNames(aiModels)
 
 	summary := map[string]any{
 		"grand_total": mergeMaps(timeFieldsMap(totalSecondsIncludingOther), map[string]any{
@@ -1021,7 +1024,92 @@ func inferAIModel(record domain.HeartbeatRecord) string {
 	}
 }
 
+var (
+	claudeModelTokenRe = regexp.MustCompile(`(sonnet|opus|haiku|fable)/([0-9][0-9.-]*)`)
+	gptModelTokenRe    = regexp.MustCompile(`gpt/([0-9]+\.[0-9]+)((?:-[a-z]+)*)`)
+	modelEffortWords   = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+)
+
+// inferSpecificAIModel extracts a pricing-table model_key (e.g. "claude-sonnet-4-6",
+// "gpt-5.6-sol") from the raw wakatime plugin string, when the heartbeat's plugin
+// user-agent embeds a specific model identifier. Falls back to false when it doesn't.
+func inferSpecificAIModel(record domain.HeartbeatRecord) (string, bool) {
+	plugin := strings.ToLower(record.Plugin)
+	if plugin == "" {
+		return "", false
+	}
+
+	if m := claudeModelTokenRe.FindStringSubmatch(plugin); m != nil {
+		family := m[1]
+		version := strings.ReplaceAll(m[2], ".", "-")
+		return fmt.Sprintf("claude-%s-%s", family, version), true
+	}
+
+	if m := gptModelTokenRe.FindStringSubmatch(plugin); m != nil {
+		version := m[1]
+		tier := ""
+		if m[2] != "" {
+			for _, part := range strings.Split(strings.TrimPrefix(m[2], "-"), "-") {
+				if part == "" || modelEffortWords[part] {
+					continue
+				}
+				if tier == "" {
+					tier = part
+				} else {
+					tier += "-" + part
+				}
+			}
+		}
+		if tier != "" {
+			return fmt.Sprintf("gpt-%s-%s", version, tier), true
+		}
+		return fmt.Sprintf("gpt-%s", version), true
+	}
+
+	return "", false
+}
+
+// modelDisplayName renders a pricing-table model_key as a human-readable label
+// for the ai_models UI. Coarse fallback keys ("Claude", "Codex", ...) already
+// read fine and pass through unchanged.
+func modelDisplayName(key string) string {
+	switch {
+	case strings.HasPrefix(key, "claude-"):
+		parts := strings.Split(strings.TrimPrefix(key, "claude-"), "-")
+		if len(parts) < 2 {
+			return key
+		}
+		family := strings.ToUpper(parts[0][:1]) + parts[0][1:]
+		version := strings.Join(parts[1:], ".")
+		return fmt.Sprintf("Claude %s %s", family, version)
+	case strings.HasPrefix(key, "gpt-"):
+		rest := strings.TrimPrefix(key, "gpt-")
+		fields := strings.SplitN(rest, "-", 2)
+		label := "GPT-" + fields[0]
+		if len(fields) == 2 {
+			label += " " + strings.ToUpper(fields[1][:1]) + fields[1][1:]
+		}
+		return label
+	default:
+		return key
+	}
+}
+
+// applyModelDisplayNames renames each ai_models item's "name" from its raw
+// pricing model_key to a human-readable label, after pricing lookups (which
+// key off the raw model_key) have already run.
+func applyModelDisplayNames(items []map[string]any) {
+	for i := range items {
+		if key, ok := items[i]["name"].(string); ok {
+			items[i]["name"] = modelDisplayName(key)
+		}
+	}
+}
+
 func aiModelBucketValue(record domain.HeartbeatRecord) (string, bool) {
+	if key, ok := inferSpecificAIModel(record); ok {
+		return key, true
+	}
 	model := inferAIModel(record)
 	if model == "" {
 		return "", false
