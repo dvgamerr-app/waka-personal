@@ -105,18 +105,22 @@ debug = false
 
 ### Multi-backend `.wakatime.cfg` example
 
-This is useful when you want to keep a default WakaTime setup, but override some traffic to Wakapi or your local Waka Personal instance:
+This is useful when you want to send heartbeats to both Waka Personal and WakaTime (or Wakapi). When `api_key` is set, heartbeats always go to the primary `api_url`, and also to every matching pattern in `[api_urls]`:
 
 ```ini
 [settings]
-api_url = https://api.wakatime.com/api/v1
-api_key = <api_key_waka>
+api_url = http://localhost:8080/api/v1
+api_key = <APP_API_KEY>
 
 debug = false
 [api_urls]
+.* = https://api.wakatime.com/api/v1|<api_key_waka>
 .* = https://wakapi.dev/api|<api_key_wakapi>
-.* = http://localhost:8080/api/v1|<APP_API_KEY>
 ```
+
+Each endpoint authenticates with its own key: `api_key` in `[settings]` must be the key for the primary `api_url` (here `APP_API_KEY`), and every entry in `[api_urls]` carries its own key after the `|`. Putting your wakatime.com key in `[settings]` while `api_url` points at Waka Personal makes the server reject every heartbeat, and they silently pile up in the offline queue.
+
+Prefer Waka Personal as the primary `api_url`. The status bar and `wakatime-cli --today` read from the primary endpoint's `/statusbar/today`, and wakatime.com excludes the `AI Coding` category from its status bar total — so with wakatime.com as primary, the status bar can show empty even though heartbeats are syncing fine. Waka Personal counts all categories, so keeping it primary makes the status bar reflect your real total.
 
 Use the same value for `APP_API_KEY` in `.env` and in your client config.
 WakaTime plugins send the API key as the Basic-auth username, and this server only checks that the received value matches `APP_API_KEY`.
@@ -185,5 +189,6 @@ go run ./cmd
 ## Notes
 
 - Auth is bypassed when `APP_API_KEY` is empty, so set it in production.
+- If recent activity looks missing, check for heartbeats stuck in the client's offline queue: `wakatime-cli --offline-count`, then flush with `wakatime-cli --sync-offline-activity 100`.
 - The default config database name is `waka_personal`, but `docker-compose.yml` uses `dvgamerr`.
 - When changing heartbeat persistence or import behavior, check both the live ingest path and the importer path.
