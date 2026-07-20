@@ -1,0 +1,19 @@
+---
+import Layout from '@/layouts/Layout.astro'
+import SyntaxShell from '@/components/dashboard/SyntaxShell.astro'
+import ProjectDetail from '@/components/dashboard/ProjectDetail'
+
+const dashboardConfig = {
+  apiBase: (import.meta.env.PUBLIC_API_BASE || '').replace(/\/$/, ''),
+  timezone: import.meta.env.PUBLIC_APP_TIMEZONE || import.meta.env.APP_TIMEZONE || 'UTC',
+}
+---
+
+<Layout title="Project Detail · Waka Personal">
+  <SyntaxShell
+    command="project --inspect"
+    subtitle="Project Telemetry · Activity Trend · Environment Breakdown"
+  >
+    <ProjectDetail client:load config={dashboardConfig} />
+  </SyntaxShell>
+</Layout>

@@ -640,6 +640,42 @@ func TestNewApp_DashboardSecondaryPagesBypassAuth(t *testing.T) {
 	}
 }
 
+func TestNewApp_ProjectDetailFiltersSummariesAndBypassesAuth(t *testing.T) {
+	query := &recordingQuery{}
+	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
+		Auth:       service.NewAuthService("secret"),
+		Heartbeats: stubHeartbeats{},
+		Query:      query,
+	})
+
+	req := httptest.NewRequest("GET", "/api/v2/project?project=waka-personal&range=Last+30+Days&timezone=Asia%2FBangkok", http.NoBody)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d with body %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	query.mu.Lock()
+	defer query.mu.Unlock()
+	if len(query.summaryCalls) != 1 {
+		t.Fatalf("expected 1 summaries call, got %d", len(query.summaryCalls))
+	}
+	call := query.summaryCalls[0]
+	if call.Project != "waka-personal" {
+		t.Fatalf("expected project %q, got %q", "waka-personal", call.Project)
+	}
+	if call.Range != "Last 30 Days" {
+		t.Fatalf("expected range %q, got %q", "Last 30 Days", call.Range)
+	}
+	if call.Timezone != "Asia/Bangkok" {
+		t.Fatalf("expected timezone %q, got %q", "Asia/Bangkok", call.Timezone)
+	}
+}
+
 func TestNewApp_WrappedUsesSingleSummaryScan(t *testing.T) {
 	query := &recordingQuery{}
 	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{

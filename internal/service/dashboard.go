@@ -441,6 +441,7 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 	totalSecondsIncludingOther := totalIntervalSeconds(intervals)
 	aiAdditions, aiDeletions, humanAdditions, humanDeletions := sumLineChanges(intervals)
 	aiInputTokens, aiOutputTokens := sumAITokens(heartbeats)
+	aiPromptCount, aiPromptChars, aiSessionCount := aiPromptSessionMetrics(heartbeats)
 
 	categories, _ := collectBucketData(intervals, totalSecondsIncludingOther, categoryBucketValue, false)
 	projects, _ := collectBucketData(intervals, totalSecondsIncludingOther, projectBucketValue, true)
@@ -462,6 +463,9 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 			"human_deletions":  humanDeletions,
 			"ai_input_tokens":  aiInputTokens,
 			"ai_output_tokens": aiOutputTokens,
+			"ai_prompt_count":  aiPromptCount,
+			"ai_prompt_chars":  aiPromptChars,
+			"ai_session_count": aiSessionCount,
 		}),
 		"categories":        categories,
 		"projects":          projects,
@@ -793,6 +797,23 @@ func sumAITokens(heartbeats []domain.HeartbeatRecord) (int64, int64) {
 		}
 	}
 	return inputTokens, outputTokens
+}
+
+func aiPromptSessionMetrics(heartbeats []domain.HeartbeatRecord) (promptCount int, promptChars int64, sessionCount int) {
+	sessions := make(map[string]struct{})
+	for i := range heartbeats {
+		if heartbeats[i].AIPromptLength != nil && *heartbeats[i].AIPromptLength > 0 {
+			promptCount++
+			promptChars += int64(*heartbeats[i].AIPromptLength)
+		}
+
+		session := strings.TrimSpace(heartbeats[i].AISession)
+		if session != "" {
+			sessions[session] = struct{}{}
+		}
+	}
+
+	return promptCount, promptChars, len(sessions)
 }
 
 func timeFieldsMap(totalSeconds float64) map[string]any {

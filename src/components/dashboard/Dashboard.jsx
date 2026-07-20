@@ -358,8 +358,9 @@ const buildProjectUrl = (name, summaries) => {
   const params = new URLSearchParams()
   if (start) params.set('start', start)
   if (end) params.set('end', end)
-  const suffix = params.toString() ? `?${params.toString()}` : ''
-  return `https://wakatime.com/projects/${encodeURIComponent(name)}${suffix}`
+  const nameParam = `name=${encodeURIComponent(name)}`
+  const rangeParams = params.toString()
+  return `/project?${nameParam}${rangeParams ? `&${rangeParams}` : ''}`
 }
 
 const ProjectMetrics = ({ projects, summaries }) => {

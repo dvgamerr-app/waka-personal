@@ -168,9 +168,49 @@ func registerDashboardRoutes(app *fiber.App, services Services) {
 	api := app.Group("/api/v2")
 	api.Use(cacheControlMiddleware())
 	api.Get("/dashboard", dashboardHandler(services.Query))
+	api.Get("/project", projectDetailHandler(services.Query))
 	api.Get("/live", liveDashboardHandler(services.Query))
 	api.Get("/insights", insightsHandler(services.Query))
 	api.Get("/wrapped", wrappedHandler(services.Query))
+}
+
+func projectDetailHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		project := strings.TrimSpace(c.Query("project"))
+		if project == "" {
+			return fiber.NewError(fiber.StatusBadRequest, "project is required")
+		}
+
+		timezone := c.Query("timezone", "UTC")
+		params := domain.SummaryQueryParams{
+			Start:    c.Query("start"),
+			End:      c.Query("end"),
+			Range:    c.Query("range", "Last 30 Days"),
+			Project:  project,
+			Timezone: timezone,
+		}
+		if params.Start != "" || params.End != "" {
+			if params.Start == "" || params.End == "" {
+				return fiber.NewError(fiber.StatusBadRequest, "start and end must be provided together")
+			}
+			params.Range = ""
+		}
+
+		summaries, err := query.Summaries(c.Context(), params)
+		if err != nil {
+			return err
+		}
+		if summaries == nil {
+			summaries = []map[string]any{}
+		}
+
+		return c.JSON(fiber.Map{
+			"project":      project,
+			"timezone":     timezone,
+			"summaries":    summaries,
+			"generated_at": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
 }
 
 func registerWebsiteRoutes(app *fiber.App, cfg *config.Config) {
@@ -1006,15 +1046,15 @@ func wrappedStatsFromSummaries(summaries []map[string]any) map[string]any {
 		"human_readable_total_including_other_language":         humanizeTotalSeconds(totalSeconds),
 		"daily_average_including_other_language":                dailyAverage,
 		"human_readable_daily_average_including_other_language": humanizeTotalSeconds(dailyAverage),
-		"ai_additions":                                          aiAdditions,
-		"ai_deletions":                                          aiDeletions,
-		"human_additions":                                       humanAdditions,
-		"human_deletions":                                       humanDeletions,
-		"ai_input_tokens":                                       aiInputTokens,
-		"ai_output_tokens":                                      aiOutputTokens,
-		"ai_total_tokens":                                       aiInputTokens + aiOutputTokens,
-		"days_including_holidays":                               len(summaries),
-		"days_minus_holidays":                                   activeDays,
+		"ai_additions":            aiAdditions,
+		"ai_deletions":            aiDeletions,
+		"human_additions":         humanAdditions,
+		"human_deletions":         humanDeletions,
+		"ai_input_tokens":         aiInputTokens,
+		"ai_output_tokens":        aiOutputTokens,
+		"ai_total_tokens":         aiInputTokens + aiOutputTokens,
+		"days_including_holidays": len(summaries),
+		"days_minus_holidays":     activeDays,
 		"best_day": map[string]any{
 			"date":          bestDayDate,
 			"text":          bestDayText,

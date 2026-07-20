@@ -107,3 +107,25 @@ func TestParseStatsWindowLastYearUsesPreviousCalendarYear(t *testing.T) {
 		t.Fatalf("expected end %s, got %s", expectedEnd, window.endLocal)
 	}
 }
+
+func TestAIPromptSessionMetrics(t *testing.T) {
+	promptLengthA := 301
+	promptLengthB := 99
+	heartbeats := []domain.HeartbeatRecord{
+		{AISession: "session-a", AIPromptLength: &promptLengthA},
+		{AISession: "session-a", AIPromptLength: &promptLengthB},
+		{AISession: "session-b"},
+		{AISession: "  "},
+	}
+
+	promptCount, promptChars, sessionCount := aiPromptSessionMetrics(heartbeats)
+	if promptCount != 2 {
+		t.Fatalf("expected 2 prompts, got %d", promptCount)
+	}
+	if promptChars != 400 {
+		t.Fatalf("expected 400 prompt chars, got %d", promptChars)
+	}
+	if sessionCount != 2 {
+		t.Fatalf("expected 2 sessions, got %d", sessionCount)
+	}
+}
