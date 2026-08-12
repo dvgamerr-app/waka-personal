@@ -29,6 +29,7 @@ type HeartbeatIngester interface {
 }
 
 type QueryReader interface {
+	Activity(ctx context.Context, params domain.ActivityQueryParams, now time.Time) (domain.ActivityOverview, error)
 	HeartbeatsForDate(ctx context.Context, day time.Time) ([]domain.HeartbeatRecord, time.Time, time.Time, string, error)
 	DeleteHeartbeatsForDate(ctx context.Context, day time.Time, ids []string) (int64, error)
 	Durations(ctx context.Context, params domain.DurationQueryParams) ([]map[string]any, time.Time, time.Time, string, error)
@@ -955,34 +956,33 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 			}
 			year = time.Now().In(loc).Format("2006")
 		}
-
-		type statsResult struct {
-			data map[string]any
-			err  error
-		}
-		type listResult struct {
-			data []map[string]any
-			err  error
+		parsedYear, err := time.Parse("2006", year)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "year must use YYYY format")
 		}
 
-		summariesCh := make(chan listResult, 1)
-
-		go func() {
-			v, e := query.Summaries(c.Context(), domain.SummaryQueryParams{Range: year, Timezone: timezone})
-			summariesCh <- listResult{v, e}
-		}()
-
-		summariesRes := <-summariesCh
-
+		summaries, summaryErr := query.Summaries(c.Context(), domain.SummaryQueryParams{Range: year, Timezone: timezone})
 		var apiErrors []string
-		if summariesRes.err != nil {
-			apiErrors = append(apiErrors, summariesRes.err.Error())
+		if summaryErr != nil {
+			apiErrors = append(apiErrors, summaryErr.Error())
 		}
-		if summariesRes.data == nil {
-			summariesRes.data = []map[string]any{}
+		if summaries == nil {
+			summaries = []map[string]any{}
+		}
+		activity, activityErr := query.Activity(c.Context(), domain.ActivityQueryParams{
+			Timezone: timezone,
+			Year:     parsedYear.Year(),
+		}, time.Now().UTC())
+		if activityErr != nil {
+			apiErrors = append(apiErrors, activityErr.Error())
 		}
 
-		stats := wrappedStatsFromSummaries(summariesRes.data)
+		stats := wrappedStatsFromSummaries(summaries)
+		if activityErr == nil {
+			stats["ai_input_tokens"] = activity.TokenUsage.InputTokens
+			stats["ai_output_tokens"] = activity.TokenUsage.OutputTokens
+			stats["ai_total_tokens"] = activity.TokenUsage.TotalTokens
+		}
 		tokens := tokenMetrics(stats)
 		spend := spendMetrics(stats)
 
@@ -990,10 +990,11 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 			"timezone":      timezone,
 			"year":          year,
 			"stats":         stats,
-			"summaries":     summariesRes.data,
+			"summaries":     summaries,
 			"token_metrics": tokens,
 			"spend_metrics": spend,
-			"total_days":    len(summariesRes.data),
+			"activity":      activity,
+			"total_days":    len(summaries),
 			"generated_at":  time.Now().UTC().Format(time.RFC3339),
 			"errors":        apiErrors,
 		})
@@ -1144,6 +1145,10 @@ func requestIncludesToday(c *fiber.Ctx) bool {
 		strings.HasSuffix(path, "/dashboard") ||
 		strings.HasSuffix(path, "/live") {
 		return true
+	}
+	if strings.HasSuffix(path, "/wrapped") {
+		year := strings.TrimSpace(c.Query("year"))
+		return year == "" || year >= today[:4]
 	}
 
 	if date := c.Query("date"); date != "" {

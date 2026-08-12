@@ -81,7 +81,7 @@ If `dist/index.html` exists, the Go server also serves the dashboard from the sa
 - `GET /api/v2/dashboard` (dashboard aggregate endpoint, no auth)
 - `GET /api/v2/live` (live dashboard slice, no auth, used by the web UI every 60 seconds)
 - `GET /api/v2/insights` (insights page data, no auth)
-- `GET /api/v2/wrapped` (wrapped page data, no auth)
+- `GET /api/v2/wrapped` (annual wrapped data with backend-calculated Activity Matrix metrics, no auth)
 
 ## Client Config
 
@@ -134,7 +134,7 @@ Use these variables when building the dashboard:
 - `PUBLIC_API_BASE` for the API origin when frontend and backend are on different origins
 - `PUBLIC_APP_TIMEZONE` for dashboard queries
 
-The built-in dashboard uses `GET /api/v2/dashboard` for the main aggregate and polls `GET /api/v2/live` every 60 seconds for live widgets. `/insights` and `/wrapped` load from `GET /api/v2/insights` and `GET /api/v2/wrapped`. These web UI endpoints skip API key auth.
+The built-in dashboard uses `GET /api/v2/dashboard` for the selected range and polls `GET /api/v2/live` every 60 seconds for live widgets. `/insights` and `/wrapped` load from `GET /api/v2/insights` and `GET /api/v2/wrapped`; the Wrapped response includes its backend-calculated annual Activity Matrix. These web UI endpoints skip API key auth.
 
 ## Import Backup JSON
 

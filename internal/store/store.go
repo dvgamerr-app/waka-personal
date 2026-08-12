@@ -534,6 +534,23 @@ func (s *Store) GetHeartbeatBounds(ctx context.Context) (*time.Time, *time.Time,
 	return minTime, maxTime, nil
 }
 
+func (s *Store) SumAITokensByRange(ctx context.Context, start, end time.Time) (int64, int64, error) {
+	var inputTokens int64
+	var outputTokens int64
+	if err := s.db.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(ai_input_tokens), 0)::BIGINT,
+			COALESCE(SUM(ai_output_tokens), 0)::BIGINT
+		FROM heartbeats
+		WHERE time >= $1
+			AND time < $2
+			AND (ai_input_tokens IS NOT NULL OR ai_output_tokens IS NOT NULL)
+	`, start, end).Scan(&inputTokens, &outputTokens); err != nil {
+		return 0, 0, fmt.Errorf("sum AI tokens by range: %w", err)
+	}
+	return inputTokens, outputTokens, nil
+}
+
 func (s *Store) ListHeartbeatsForEntity(ctx context.Context, entity, project string, projectRootCount *int) ([]domain.HeartbeatRecord, error) {
 	builder := strings.Builder{}
 	builder.WriteString(`

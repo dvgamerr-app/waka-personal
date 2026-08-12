@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
+import ActivityHeatmap from './ActivityHeatmap'
 import {
   computeRangeStats,
   formatCount,
@@ -66,6 +67,7 @@ const loadWrapped = async ({ base, timezone, year }) => {
       summaries: [],
       tokenMetrics: {},
       spendMetrics: {},
+      activity: {},
       totalDays: 0,
       errors: [error || 'Failed to load wrapped'],
     }
@@ -77,6 +79,7 @@ const loadWrapped = async ({ base, timezone, year }) => {
     summaries: data.summaries || [],
     tokenMetrics: data.token_metrics || {},
     spendMetrics: data.spend_metrics || {},
+    activity: data.activity || {},
     totalDays: data.total_days || 0,
     generatedAt: data.generated_at || '',
     errors: data.errors || [],
@@ -103,6 +106,7 @@ function WrappedContent({ config = {}, year }) {
     summaries: [],
     tokenMetrics: {},
     spendMetrics: {},
+    activity: {},
     totalDays: 0,
     errors: [],
   })
@@ -184,43 +188,18 @@ function WrappedContent({ config = {}, year }) {
   const linesPerDay = rangeStats?.activeDays > 0 ? Math.round(aiTotal / rangeStats.activeDays) : 0
   const machineCount = rangeStats?.machines?.length || 0
 
-  // Compute tokens from summaries (more reliable than stats.ai_input_tokens)
-  const totalInputTokens = useMemo(
-    () => summaries.reduce((sum, d) => sum + (Number(d.grand_total?.ai_input_tokens) || 0), 0),
-    [summaries]
-  )
-  const totalOutputTokens = useMemo(
-    () => summaries.reduce((sum, d) => sum + (Number(d.grand_total?.ai_output_tokens) || 0), 0),
-    [summaries]
-  )
+  const activity = data.activity || {}
+  const tokenUsage = activity.token_usage || {}
+  const totalInputTokens = Number(tokenUsage.input_tokens) || 0
+  const totalOutputTokens = Number(tokenUsage.output_tokens) || 0
   const totalTokens = totalInputTokens + totalOutputTokens
   const spendCents = data.spendMetrics?.estimated_cents || 0
 
-  // Longest streak
-  const longestStreak = useMemo(() => {
-    let max = 0,
-      cur = 0,
-      streakStart = null,
-      bestStart = null,
-      bestEnd = null
-    const sorted = [...summaries].sort((a, b) =>
-      (a.range?.date || '').localeCompare(b.range?.date || '')
-    )
-    for (const day of sorted) {
-      if ((Number(day.grand_total?.total_seconds) || 0) > 0) {
-        if (cur === 0) streakStart = day.range?.date
-        cur++
-        if (cur > max) {
-          max = cur
-          bestStart = streakStart
-          bestEnd = day.range?.date
-        }
-      } else {
-        cur = 0
-      }
-    }
-    return { days: max, start: bestStart, end: bestEnd }
-  }, [summaries])
+  const longestStreak = {
+    days: Number(activity.longest_streak_days) || 0,
+    start: activity.longest_streak_start || null,
+    end: activity.longest_streak_end || null,
+  }
 
   // First active day
   const firstActiveDay = useMemo(() => {
@@ -260,8 +239,10 @@ function WrappedContent({ config = {}, year }) {
     () => [
       {
         key: '[MOST_PROLIFIC_DAY]',
-        value: rangeStats?.bestDay?.date ? fmtDateLong(rangeStats.bestDay.date) : '—',
-        note: rangeStats?.bestDay?.text || 'No data',
+        value: activity.peak_day?.date ? fmtDateLong(activity.peak_day.date) : '—',
+        note: activity.peak_day?.total_seconds
+          ? formatShortDuration(activity.peak_day.total_seconds)
+          : 'No data',
       },
       {
         key: '[LONGEST_STREAK]',
@@ -299,7 +280,7 @@ function WrappedContent({ config = {}, year }) {
       },
     ],
     [
-      rangeStats,
+      activity,
       longestStreak,
       topProject,
       topLanguage,
@@ -316,7 +297,7 @@ function WrappedContent({ config = {}, year }) {
       {
         label: '1M Lines Club',
         unlocked: aiTotal >= 1_000_000,
-        date: aiTotal >= 1_000_000 ? fmtDate(rangeStats?.bestDay?.date) || '✓' : '—',
+        date: aiTotal >= 1_000_000 ? fmtDate(activity.peak_day?.date) || '✓' : '—',
       },
       {
         label: `${longestStreak.days || 0}-Day Streak`,
@@ -344,7 +325,7 @@ function WrappedContent({ config = {}, year }) {
         date: '—',
       },
     ],
-    [aiTotal, longestStreak, languages, totalTokens, totalHours, rangeStats]
+    [aiTotal, longestStreak, languages, totalTokens, totalHours, activity]
   )
 
   return (
@@ -459,6 +440,8 @@ function WrappedContent({ config = {}, year }) {
             </section>
           ))}
         </div>
+
+        <ActivityHeatmap data={activity} loading={loading} />
 
         {/* Bottom grid */}
         <div className="grid grid-cols-12 gap-6">

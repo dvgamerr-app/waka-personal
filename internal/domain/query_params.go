@@ -29,3 +29,8 @@ type StatsQueryParams struct {
 	TimeoutMinutes *int
 	WritesOnly     *bool
 }
+
+type ActivityQueryParams struct {
+	Timezone string
+	Year     int
+}

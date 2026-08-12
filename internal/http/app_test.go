@@ -51,9 +51,28 @@ type stubQuery struct {
 type recordingQuery struct {
 	stubQuery
 	mu            sync.Mutex
+	activityCalls []domain.ActivityQueryParams
 	statsCalls    []domain.StatsQueryParams
 	summaryCalls  []domain.SummaryQueryParams
 	durationCalls []domain.DurationQueryParams
+}
+
+func (s stubQuery) Activity(ctx context.Context, params domain.ActivityQueryParams, now time.Time) (domain.ActivityOverview, error) {
+	return domain.ActivityOverview{
+		Timezone:           params.Timezone,
+		Year:               params.Year,
+		PeriodDays:         224,
+		CalendarDays:       365,
+		LongestStreakDays:  9,
+		LongestStreakStart: "2026-06-01",
+		LongestStreakEnd:   "2026-06-09",
+		RangeStart:         "2026-01-01",
+		RangeEnd:           "2026-08-12",
+		TokenUsage:         domain.ActivityTokenUsage{InputTokens: 1200, OutputTokens: 800, TotalTokens: 2000},
+		PeakDay:            domain.ActivityPeakDay{Date: "2026-06-17", TotalSeconds: 3600},
+		LongestTask:        domain.ActivityTask{TotalSeconds: 1800, HeartbeatCount: 4, EntityCount: 2},
+		Days:               []domain.ActivityDay{{Date: "2026-08-12", TotalSeconds: 600, Intensity: 4}},
+	}, nil
 }
 
 func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) (records []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
@@ -151,6 +170,13 @@ func (q *recordingQuery) Durations(ctx context.Context, params domain.DurationQu
 	q.durationCalls = append(q.durationCalls, params)
 	q.mu.Unlock()
 	return q.stubQuery.Durations(ctx, params)
+}
+
+func (q *recordingQuery) Activity(ctx context.Context, params domain.ActivityQueryParams, now time.Time) (domain.ActivityOverview, error) {
+	q.mu.Lock()
+	q.activityCalls = append(q.activityCalls, params)
+	q.mu.Unlock()
+	return q.stubQuery.Activity(ctx, params, now)
 }
 
 func TestNewApp_RejectsUnauthorizedRequests(t *testing.T) {
@@ -676,7 +702,7 @@ func TestNewApp_ProjectDetailFiltersSummariesAndBypassesAuth(t *testing.T) {
 	}
 }
 
-func TestNewApp_WrappedUsesSingleSummaryScan(t *testing.T) {
+func TestNewApp_WrappedIncludesBackendActivityMatrix(t *testing.T) {
 	query := &recordingQuery{}
 	app := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"*"}}, &apihttp.Checker{}, apihttp.Services{
 		Auth:       service.NewAuthService("secret"),
@@ -694,6 +720,15 @@ func TestNewApp_WrappedUsesSingleSummaryScan(t *testing.T) {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		t.Fatalf("expected 200, got %d with body %s", resp.StatusCode, string(bodyBytes))
 	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	for _, expected := range []string{`"activity":`, `"year":2026`, `"token_usage":`, `"longest_task":`, `"total_tokens":2000`} {
+		if !strings.Contains(string(bodyBytes), expected) {
+			t.Fatalf("expected wrapped response to contain %s, got %s", expected, string(bodyBytes))
+		}
+	}
 
 	if len(query.summaryCalls) != 1 {
 		t.Fatalf("expected 1 summaries call, got %d", len(query.summaryCalls))
@@ -703,6 +738,12 @@ func TestNewApp_WrappedUsesSingleSummaryScan(t *testing.T) {
 	}
 	if len(query.statsCalls) != 0 {
 		t.Fatalf("expected wrapped endpoint to avoid stats scan, got %d calls", len(query.statsCalls))
+	}
+	if len(query.activityCalls) != 1 {
+		t.Fatalf("expected 1 activity call, got %d", len(query.activityCalls))
+	}
+	if query.activityCalls[0].Timezone != "Asia/Bangkok" || query.activityCalls[0].Year != 2026 {
+		t.Fatalf("unexpected activity params: %#v", query.activityCalls[0])
 	}
 }
 
