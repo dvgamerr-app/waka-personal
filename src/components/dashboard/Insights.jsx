@@ -13,7 +13,7 @@ import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 
 const PANEL = 'border border-zinc-800/60 bg-zinc-950'
 const LABEL = 'text-[10px] tracking-[0.22em] text-zinc-500 uppercase font-mono'
-const CELL_BASE = 'ring-1 ring-zinc-950 rounded-[2px]'
+const CELL_BASE = 'ring-1 ring-zinc-950'
 const LOAD_BG = [
   `bg-zinc-900/40 ${CELL_BASE}`,
   `bg-white/10 ${CELL_BASE}`,
@@ -347,7 +347,7 @@ function InsightsContent({ config = {} }) {
       {/* Status bar */}
       <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-zinc-900 pt-3 text-[10px] text-zinc-600">
         <span>
-          <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+          <span className="mr-1.5 inline-block h-1.5 w-1.5 bg-green-500" />
           NODE STATUS: <span className="text-zinc-400">SYNCHRONIZED</span>
         </span>
         {topMachine && (

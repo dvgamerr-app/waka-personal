@@ -1,11 +1,7 @@
 ---
 import Layout from '@/layouts/Layout.astro'
 import Dashboard from '@/components/dashboard/Dashboard'
-
-const dashboardConfig = {
-  apiBase: (import.meta.env.PUBLIC_API_BASE || '').replace(/\/$/, ''),
-  timezone: import.meta.env.PUBLIC_APP_TIMEZONE || import.meta.env.APP_TIMEZONE || 'UTC',
-}
+import { dashboardConfig } from '@/lib/dashboardConfig.js'
 ---
 
 <Layout title="Waka Personal Dashboard">

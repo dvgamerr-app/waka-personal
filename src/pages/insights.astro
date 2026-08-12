@@ -2,11 +2,7 @@
 import Layout from '@/layouts/Layout.astro'
 import SyntaxShell from '@/components/dashboard/SyntaxShell.astro'
 import Insights from '@/components/dashboard/Insights'
-
-const dashboardConfig = {
-  apiBase: (import.meta.env.PUBLIC_API_BASE || '').replace(/\/$/, ''),
-  timezone: import.meta.env.PUBLIC_APP_TIMEZONE || import.meta.env.APP_TIMEZONE || 'UTC',
-}
+import { dashboardConfig } from '@/lib/dashboardConfig.js'
 ---
 
 <Layout title="Waka Personal Insights">

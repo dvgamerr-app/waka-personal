@@ -1,16 +1,12 @@
 ---
+import SyntaxNavLinks from './SyntaxNavLinks.astro'
+
 const {
   active = 'dashboard',
   command = 'activity_overview',
   subtitle = '',
   meta = [] as string[],
 } = Astro.props
-
-const links = [
-  { id: 'dashboard', href: '/', label: 'Dashboard' },
-  { id: 'insights', href: '/insights', label: 'Insights' },
-  { id: 'wrapped', href: '/wrapped', label: 'Wrapped' },
-]
 ---
 
 <div
@@ -20,17 +16,7 @@ const links = [
     <div
       class="flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-600 uppercase md:hidden"
     >
-      {
-        links.map((link) => (
-          <a
-            href={link.href}
-            class={active === link.id ? 'text-sky-300' : 'transition-colors hover:text-zinc-300'}
-            aria-current={active === link.id ? 'page' : undefined}
-          >
-            {link.label}
-          </a>
-        ))
-      }
+      <SyntaxNavLinks {active} />
     </div>
     <div class="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-4 px-4">
       <div class="flex min-w-0 items-center gap-6">
@@ -41,19 +27,7 @@ const links = [
         <div
           class="hidden items-center gap-4 text-xs tracking-[0.24em] text-zinc-600 uppercase md:flex"
         >
-          {
-            links.map((link) => (
-              <a
-                href={link.href}
-                class={
-                  active === link.id ? 'text-sky-300' : 'transition-colors hover:text-zinc-300'
-                }
-                aria-current={active === link.id ? 'page' : undefined}
-              >
-                {link.label}
-              </a>
-            ))
-          }
+          <SyntaxNavLinks {active} />
         </div>
       </div>
       <slot name="nav-right" />

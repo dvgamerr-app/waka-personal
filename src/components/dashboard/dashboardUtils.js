@@ -41,6 +41,10 @@ export const formatPercent = (value) => `${Math.round(Number(value) || 0)}%`
 
 export const formatCount = (value) => {
   const n = Math.round(Number(value) || 0)
+  if (n >= 1000000000) {
+    const compact = n / 1000000000
+    return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/\.0$/, '')}B`
+  }
   if (n >= 1000000) {
     const compact = n / 1000000
     return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/\.0$/, '')}M`

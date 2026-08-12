@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -320,14 +321,8 @@ func postHeartbeatHandler(ingester HeartbeatIngester) fiber.Handler {
 			return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"data": fiber.Map{}})
 		}
 
-		record := records[0]
 		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-			"data": fiber.Map{
-				"id":     record.ID,
-				"entity": record.Entity,
-				"type":   record.Type,
-				"time":   float64(record.Time.UnixNano()) / float64(time.Second),
-			},
+			"data": heartbeatResponseData(&records[0]),
 		})
 	}
 }
@@ -685,6 +680,47 @@ func toInt64(v any) int64 {
 	}
 }
 
+type parallelQueryResult[T any] struct {
+	data T
+	err  error
+}
+
+func runParallel(tasks ...func()) {
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(len(tasks))
+	for _, task := range tasks {
+		go func() {
+			defer waitGroup.Done()
+			task()
+		}()
+	}
+	waitGroup.Wait()
+}
+
+func queryErrorMessages(errs ...error) []string {
+	var messages []string
+	for _, err := range errs {
+		if err != nil {
+			messages = append(messages, err.Error())
+		}
+	}
+	return messages
+}
+
+func mapOrEmpty(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	return value
+}
+
+func listOrEmpty(value []map[string]any) []map[string]any {
+	if value == nil {
+		return []map[string]any{}
+	}
+	return value
+}
+
 func dashboardHandler(query QueryReader) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		rangeParam := c.Query("range", "Last 7 Days")
@@ -707,92 +743,36 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 			summaryParams.Range = rangeParam
 		}
 
-		type statsResult struct {
-			data map[string]any
-			err  error
-		}
-		type listResult struct {
-			data []map[string]any
-			err  error
-		}
+		var statsRes, todayRes parallelQueryResult[map[string]any]
+		var summariesRes, projRes, langRes, editorRes parallelQueryResult[[]map[string]any]
+		runParallel(
+			func() {
+				statsRes.data, statsRes.err = query.Stats(c.Context(), domain.StatsQueryParams{Range: statsRange, Start: start, End: end, Timezone: timezone})
+			},
+			func() {
+				summariesRes.data, summariesRes.err = query.Summaries(c.Context(), summaryParams)
+			},
+			func() {
+				todayRes.data, todayRes.err = query.StatusbarToday(c.Context(), time.Now().UTC())
+			},
+			func() {
+				projRes.data, _, _, _, projRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "project", Timezone: timezone})
+			},
+			func() {
+				langRes.data, _, _, _, langRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "language", Timezone: timezone})
+			},
+			func() {
+				editorRes.data, _, _, _, editorRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "editor", Timezone: timezone})
+			},
+		)
 
-		statsCh := make(chan statsResult, 1)
-		summariesCh := make(chan listResult, 1)
-		todayCh := make(chan statsResult, 1)
-		projCh := make(chan listResult, 1)
-		langCh := make(chan listResult, 1)
-		editorCh := make(chan listResult, 1)
-
-		go func() {
-			v, e := query.Stats(c.Context(), domain.StatsQueryParams{Range: statsRange, Start: start, End: end, Timezone: timezone})
-			statsCh <- statsResult{v, e}
-		}()
-		go func() {
-			v, e := query.Summaries(c.Context(), summaryParams)
-			summariesCh <- listResult{v, e}
-		}()
-		go func() {
-			v, e := query.StatusbarToday(c.Context(), time.Now().UTC())
-			todayCh <- statsResult{v, e}
-		}()
-		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "project", Timezone: timezone})
-			projCh <- listResult{items, e}
-		}()
-		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "language", Timezone: timezone})
-			langCh <- listResult{items, e}
-		}()
-		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "editor", Timezone: timezone})
-			editorCh <- listResult{items, e}
-		}()
-
-		statsRes := <-statsCh
-		summariesRes := <-summariesCh
-		todayRes := <-todayCh
-		projRes := <-projCh
-		langRes := <-langCh
-		editorRes := <-editorCh
-
-		var apiErrors []string
-		if statsRes.err != nil {
-			apiErrors = append(apiErrors, statsRes.err.Error())
-		}
-		if summariesRes.err != nil {
-			apiErrors = append(apiErrors, summariesRes.err.Error())
-		}
-		if todayRes.err != nil {
-			apiErrors = append(apiErrors, todayRes.err.Error())
-		}
-		if projRes.err != nil {
-			apiErrors = append(apiErrors, projRes.err.Error())
-		}
-		if langRes.err != nil {
-			apiErrors = append(apiErrors, langRes.err.Error())
-		}
-		if editorRes.err != nil {
-			apiErrors = append(apiErrors, editorRes.err.Error())
-		}
-
-		if statsRes.data == nil {
-			statsRes.data = map[string]any{}
-		}
-		if todayRes.data == nil {
-			todayRes.data = map[string]any{}
-		}
-		if summariesRes.data == nil {
-			summariesRes.data = []map[string]any{}
-		}
-		if projRes.data == nil {
-			projRes.data = []map[string]any{}
-		}
-		if langRes.data == nil {
-			langRes.data = []map[string]any{}
-		}
-		if editorRes.data == nil {
-			editorRes.data = []map[string]any{}
-		}
+		apiErrors := queryErrorMessages(statsRes.err, summariesRes.err, todayRes.err, projRes.err, langRes.err, editorRes.err)
+		statsRes.data = mapOrEmpty(statsRes.data)
+		todayRes.data = mapOrEmpty(todayRes.data)
+		summariesRes.data = listOrEmpty(summariesRes.data)
+		projRes.data = listOrEmpty(projRes.data)
+		langRes.data = listOrEmpty(langRes.data)
+		editorRes.data = listOrEmpty(editorRes.data)
 
 		tokens := tokenMetrics(statsRes.data)
 		spend := spendMetrics(statsRes.data)
@@ -822,68 +802,28 @@ func liveDashboardHandler(query QueryReader) fiber.Handler {
 		now := time.Now().UTC()
 		todayDate := now.In(loc).Format("2006-01-02")
 
-		type statsResult struct {
-			data map[string]any
-			err  error
-		}
-		type listResult struct {
-			data []map[string]any
-			err  error
-		}
+		var todayRes parallelQueryResult[map[string]any]
+		var projRes, langRes, editorRes parallelQueryResult[[]map[string]any]
+		runParallel(
+			func() {
+				todayRes.data, todayRes.err = query.StatusbarToday(c.Context(), now)
+			},
+			func() {
+				projRes.data, _, _, _, projRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "project", Timezone: timezone})
+			},
+			func() {
+				langRes.data, _, _, _, langRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "language", Timezone: timezone})
+			},
+			func() {
+				editorRes.data, _, _, _, editorRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "editor", Timezone: timezone})
+			},
+		)
 
-		todayCh := make(chan statsResult, 1)
-		projCh := make(chan listResult, 1)
-		langCh := make(chan listResult, 1)
-		editorCh := make(chan listResult, 1)
-
-		go func() {
-			v, e := query.StatusbarToday(c.Context(), now)
-			todayCh <- statsResult{v, e}
-		}()
-		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "project", Timezone: timezone})
-			projCh <- listResult{items, e}
-		}()
-		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "language", Timezone: timezone})
-			langCh <- listResult{items, e}
-		}()
-		go func() {
-			items, _, _, _, e := query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "editor", Timezone: timezone})
-			editorCh <- listResult{items, e}
-		}()
-
-		todayRes := <-todayCh
-		projRes := <-projCh
-		langRes := <-langCh
-		editorRes := <-editorCh
-
-		var apiErrors []string
-		if todayRes.err != nil {
-			apiErrors = append(apiErrors, todayRes.err.Error())
-		}
-		if projRes.err != nil {
-			apiErrors = append(apiErrors, projRes.err.Error())
-		}
-		if langRes.err != nil {
-			apiErrors = append(apiErrors, langRes.err.Error())
-		}
-		if editorRes.err != nil {
-			apiErrors = append(apiErrors, editorRes.err.Error())
-		}
-
-		if todayRes.data == nil {
-			todayRes.data = map[string]any{}
-		}
-		if projRes.data == nil {
-			projRes.data = []map[string]any{}
-		}
-		if langRes.data == nil {
-			langRes.data = []map[string]any{}
-		}
-		if editorRes.data == nil {
-			editorRes.data = []map[string]any{}
-		}
+		apiErrors := queryErrorMessages(todayRes.err, projRes.err, langRes.err, editorRes.err)
+		todayRes.data = mapOrEmpty(todayRes.data)
+		projRes.data = listOrEmpty(projRes.data)
+		langRes.data = listOrEmpty(langRes.data)
+		editorRes.data = listOrEmpty(editorRes.data)
 
 		return c.JSON(fiber.Map{
 			"cached_at":          now.Format(time.RFC3339),
@@ -962,20 +902,13 @@ func wrappedHandler(query QueryReader) fiber.Handler {
 		}
 
 		summaries, summaryErr := query.Summaries(c.Context(), domain.SummaryQueryParams{Range: year, Timezone: timezone})
-		var apiErrors []string
-		if summaryErr != nil {
-			apiErrors = append(apiErrors, summaryErr.Error())
-		}
-		if summaries == nil {
-			summaries = []map[string]any{}
-		}
+		apiErrors := queryErrorMessages(summaryErr)
+		summaries = listOrEmpty(summaries)
 		activity, activityErr := query.Activity(c.Context(), domain.ActivityQueryParams{
 			Timezone: timezone,
 			Year:     parsedYear.Year(),
 		}, time.Now().UTC())
-		if activityErr != nil {
-			apiErrors = append(apiErrors, activityErr.Error())
-		}
+		apiErrors = append(apiErrors, queryErrorMessages(activityErr)...)
 
 		stats := wrappedStatsFromSummaries(summaries)
 		if activityErr == nil {

@@ -13,7 +13,7 @@ import {
 } from './dashboardUtils.js'
 import { detectTimezone, fetchJson, readRuntimeConfig } from './apiClient.js'
 
-const PANEL = 'ring-1 ring-zinc-900 bg-zinc-950/80 p-6 rounded-none'
+const PANEL = 'bg-zinc-950/80 p-6 ring-1 ring-zinc-900'
 
 const SectionTitle = ({ children }) => (
   <h3 className="mb-6 flex items-center gap-2 text-sm font-medium text-zinc-400">
@@ -464,7 +464,7 @@ function WrappedContent({ config = {}, year }) {
                       >
                         {Math.round(month.seconds / 3600)}h
                       </span>
-                      <div className="relative w-full flex-1 overflow-hidden rounded-sm bg-zinc-900/40">
+                      <div className="relative w-full flex-1 overflow-hidden bg-zinc-900/40">
                         <div
                           className={`absolute right-0 bottom-0 left-0 transition-all ${isPeak ? 'bg-sky-300' : 'bg-sky-300/30'}`}
                           style={{ height: `${pct}%` }}
@@ -484,7 +484,7 @@ function WrappedContent({ config = {}, year }) {
                 {superlatives.map(({ key, value, note }) => (
                   <div
                     key={key}
-                    className="rounded-none bg-zinc-900/20 p-3 ring-1 ring-zinc-900 transition-colors hover:ring-sky-300/30"
+                    className="bg-zinc-900/20 p-3 ring-1 ring-zinc-900 transition-colors hover:ring-sky-300/30"
                   >
                     <div className="mb-1 text-[10px] tracking-widest text-sky-300 uppercase">
                       {key}
@@ -499,7 +499,7 @@ function WrappedContent({ config = {}, year }) {
             {/* Language distribution */}
             <section className={PANEL}>
               <SectionTitle>LANGUAGE_DISTRIBUTION</SectionTitle>
-              <div className="mb-3 flex h-8 overflow-hidden rounded-sm ring-1 ring-zinc-800">
+              <div className="mb-3 flex h-8 overflow-hidden ring-1 ring-zinc-800">
                 {langBar.map((lang, i) => (
                   <div
                     key={lang.name}
@@ -563,9 +563,7 @@ function WrappedContent({ config = {}, year }) {
                     className="flex items-center justify-between border-b border-zinc-900/60 pb-1.5"
                   >
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`size-1.5 rounded-full ${unlocked ? 'bg-sky-300' : 'bg-zinc-700'}`}
-                      />
+                      <span className={`size-1.5 ${unlocked ? 'bg-sky-300' : 'bg-zinc-700'}`} />
                       <span className={unlocked ? 'text-zinc-200' : 'text-zinc-600 line-through'}>
                         {label}
                       </span>

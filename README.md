@@ -54,7 +54,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/dvgamerr?sslmode=disabl
 3. Install frontend dependencies and build the dashboard:
 
 ```shell
-bun install
+bun install --frozen-lockfile
 bun run build:dist
 ```
 
@@ -170,9 +170,24 @@ Migration config comes from `.env`, including `DATABASE_URL`, `MIGRATION_DIR`, a
 go run ./cmd
 go run ./cmd/migrate up
 go run ./cmd/importer --file <path-to-backup.json>
+gofmt -l cmd internal
 go test ./...
-bun run build:dist
+go vet ./...
+go mod verify
+go mod tidy -diff
+bun run check
+bun audit
 ```
+
+`bun run check` runs the repository-wide Prettier check and produces all four
+static Astro routes in `dist/`. The Go suite covers the HTTP, service, store,
+and domain packages; PostgreSQL integration tests run when their database
+configuration is available and otherwise skip safely. A `.golangci.yml` is
+included for environments that have `golangci-lint` installed.
+
+The dashboard build intentionally shares one environment-derived client config
+across all Astro pages. Keep API base and timezone normalization in
+`src/lib/dashboardConfig.js` rather than duplicating it in page frontmatter.
 
 On Windows, avoid rebuilding over the same running `.exe` path. `go build -o bin/waka.exe ./cmd/main.go` will fail while `bin/waka.exe` is still running because Windows locks the file.
 
@@ -192,3 +207,5 @@ go run ./cmd
 - If recent activity looks missing, check for heartbeats stuck in the client's offline queue: `wakatime-cli --offline-count`, then flush with `wakatime-cli --sync-offline-activity 100`.
 - The default config database name is `waka_personal`, but `docker-compose.yml` uses `dvgamerr`.
 - When changing heartbeat persistence or import behavior, check both the live ingest path and the importer path.
+- The dashboard and live endpoints intentionally run independent data reads in parallel. Preserve their partial-result response shape and deterministic `errors` ordering when changing that orchestration.
+- The interface uses sharp corners. Do not add Tailwind `rounded-*` utilities; the global radius token is zero by design.
