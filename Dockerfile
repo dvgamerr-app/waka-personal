@@ -10,7 +10,7 @@ COPY . .
 RUN bun run build:dist
 
 # Stage 2: Build Go binaries
-FROM --platform=$BUILDPLATFORM golang:1.26 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.6 AS go-builder
 
 ARG TARGETOS
 ARG TARGETARCH
