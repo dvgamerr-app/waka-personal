@@ -95,13 +95,14 @@ jobs:
           container stop ${{ env.CONTAINER_NAME }} || true
           container delete ${{ env.CONTAINER_NAME }} || true
           container image delete ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }} || true
-          container image pull --platform ${{ env.DEPLOY_PLATFORM }} ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}
+          container image pull ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}
 
       - name: Start new container
         run: |
+          container rm -f ${{ env.CONTAINER_NAME }} 2>/dev/null || true
           container run -d \
-            --platform ${{ env.DEPLOY_PLATFORM }} \
             --name ${{ env.CONTAINER_NAME }} \
+            --cpus 1 --memory 512M \
             -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
             -e APP_API_KEY=${{ secrets.APP_API_KEY }} \
             -e APP_TIMEZONE=${{ vars.APP_TIMEZONE }} \
