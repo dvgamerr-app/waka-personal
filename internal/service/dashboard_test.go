@@ -129,3 +129,28 @@ func TestAIPromptSessionMetrics(t *testing.T) {
 		t.Fatalf("expected 2 sessions, got %d", sessionCount)
 	}
 }
+
+func TestInferSpecificAIModelParsesLatestModels(t *testing.T) {
+	cases := []struct {
+		plugin      string
+		wantKey     string
+		wantDisplay string
+	}{
+		{"claude-code/3.0.0 opus/5.5", "claude-opus-5-5", "Claude Opus 5.5"},
+		{"claude-code/3.0.0 fable/5.1", "claude-fable-5-1", "Claude Fable 5.1"},
+		{"claude-code/3.0.0 sonnet/5.5", "claude-sonnet-5-5", "Claude Sonnet 5.5"},
+		{"codex-cli/1.0.0 gpt/6.1-sol-high", "gpt-6.1-sol", "GPT-6.1 Sol"},
+		{"codex-cli/1.0.0 gpt/6-astra", "gpt-6-astra", "GPT-6 Astra"},
+		{"codex-cli/1.0.0 gpt/5.6-luna-xhigh", "gpt-5.6-luna", "GPT-5.6 Luna"},
+	}
+
+	for _, tc := range cases {
+		key, ok := inferSpecificAIModel(domain.HeartbeatRecord{Plugin: tc.plugin})
+		if !ok || key != tc.wantKey {
+			t.Fatalf("inferSpecificAIModel(%q) = %q, %v; want %q", tc.plugin, key, ok, tc.wantKey)
+		}
+		if got := modelDisplayName(key); got != tc.wantDisplay {
+			t.Fatalf("modelDisplayName(%q) = %q; want %q", key, got, tc.wantDisplay)
+		}
+	}
+}
