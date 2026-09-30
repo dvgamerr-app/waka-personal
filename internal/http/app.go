@@ -131,6 +131,7 @@ func securityHeadersMiddleware() fiber.Handler {
 		c.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Set("X-Content-Type-Options", "nosniff")
 		c.Set("X-Frame-Options", "DENY")
+		c.Set("X-Robots-Tag", "noindex, nofollow, noarchive, noimageindex, nosnippet")
 
 		if requestIsHTTPS(c) {
 			c.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
