@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type QueryReader interface {
 	Stats(ctx context.Context, params domain.StatsQueryParams) (map[string]any, error)
 	StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error)
 	FileExperts(ctx context.Context, entity, project string, projectRootCount *int, now time.Time) ([]map[string]any, error)
+	Resume(ctx context.Context, params domain.ResumeQueryParams) (domain.ResumeOverview, error)
 }
 
 type Services struct {
@@ -174,6 +176,30 @@ func registerDashboardRoutes(app *fiber.App, services Services) {
 	api.Get("/live", liveDashboardHandler(services.Query))
 	api.Get("/insights", insightsHandler(services.Query))
 	api.Get("/wrapped", wrappedHandler(services.Query))
+	api.Get("/resume", resumeHandler(services.Query))
+}
+
+func resumeHandler(query QueryReader) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		months := 0
+		if raw := strings.TrimSpace(c.Query("months")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed <= 0 {
+				return fiber.NewError(fiber.StatusBadRequest, "months must be a positive integer")
+			}
+			months = parsed
+		}
+
+		resume, err := query.Resume(c.Context(), domain.ResumeQueryParams{
+			Timezone: c.Query("timezone", "UTC"),
+			Months:   months,
+		})
+		if err != nil {
+			return err
+		}
+
+		return c.JSON(resume)
+	}
 }
 
 func projectDetailHandler(query QueryReader) fiber.Handler {

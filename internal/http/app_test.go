@@ -151,6 +151,10 @@ func (s stubQuery) FileExperts(ctx context.Context, entity, project string, proj
 	return s.fileExpertsPayload, nil
 }
 
+func (s stubQuery) Resume(ctx context.Context, params domain.ResumeQueryParams) (domain.ResumeOverview, error) {
+	return domain.ResumeOverview{}, nil
+}
+
 func (q *recordingQuery) Summaries(ctx context.Context, params domain.SummaryQueryParams) ([]map[string]any, error) {
 	q.mu.Lock()
 	q.summaryCalls = append(q.summaryCalls, params)
