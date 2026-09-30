@@ -1047,7 +1047,7 @@ func inferAIModel(record domain.HeartbeatRecord) string {
 
 var (
 	claudeModelTokenRe = regexp.MustCompile(`(sonnet|opus|haiku|fable)/([0-9][0-9.-]*)`)
-	gptModelTokenRe    = regexp.MustCompile(`gpt/([0-9]+\.[0-9]+)((?:-[a-z]+)*)`)
+	gptModelTokenRe    = regexp.MustCompile(`gpt/([0-9]+(?:\.[0-9]+)?)((?:-[a-z]+)*)`)
 	modelEffortWords   = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 )
 
