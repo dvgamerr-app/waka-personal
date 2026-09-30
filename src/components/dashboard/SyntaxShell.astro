@@ -9,13 +9,9 @@ const {
 } = Astro.props
 ---
 
-<div
-  class="min-h-screen bg-zinc-950 font-mono text-zinc-300 selection:bg-sky-300/30 selection:text-white"
->
+<div class="min-h-screen bg-zinc-950 font-mono text-zinc-300 selection:bg-sky-300/30 selection:text-white">
   <nav class="sticky top-0 z-50 border-b border-zinc-900 bg-zinc-950/85 backdrop-blur-sm">
-    <div
-      class="flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-600 uppercase md:hidden"
-    >
+    <div class="flex gap-5 border-b border-zinc-900/50 px-4 py-1.5 text-[11px] tracking-[0.24em] text-zinc-600 uppercase md:hidden">
       <SyntaxNavLinks {active} />
     </div>
     <div class="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-4 px-4">
@@ -24,9 +20,7 @@ const {
           <span class="h-2 w-2 animate-pulse bg-sky-300"></span>
           <span class="text-sm font-semibold tracking-tight text-zinc-100">WAKA_PERSONAL v2</span>
         </a>
-        <div
-          class="hidden items-center gap-4 text-xs tracking-[0.24em] text-zinc-600 uppercase md:flex"
-        >
+        <div class="hidden items-center gap-4 text-xs tracking-[0.24em] text-zinc-600 uppercase md:flex">
           <SyntaxNavLinks {active} />
         </div>
       </div>
@@ -42,24 +36,22 @@ const {
           <span id="shell-command">{command}</span>
           <span class="ml-2 inline-block h-5 w-2 animate-pulse bg-sky-300 align-middle"></span>
         </h1>
-        {
-          subtitle && (
-            <p id="shell-subtitle" class="mt-1 text-xs tracking-[0.22em] text-zinc-500 uppercase">
-              {subtitle}
-            </p>
-          )
-        }
+        {subtitle && (
+          <p id="shell-subtitle" class="mt-1 text-xs tracking-[0.22em] text-zinc-500 uppercase">
+            {subtitle}
+          </p>
+        )}
       </div>
       <div id="shell-meta" class="text-right text-[11px] tracking-[0.22em] text-zinc-600 uppercase">
-        {meta.map((item: string) => <div>{item}</div>)}
+        {meta.map((item: string) => (
+          <div>{item}</div>
+        ))}
       </div>
     </header>
 
     <slot />
 
-    <footer
-      class="mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border border-zinc-900 bg-zinc-950 p-4 text-[11px] text-zinc-600"
-    >
+    <footer class="mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border border-zinc-900 bg-zinc-950 p-4 text-[11px] text-zinc-600">
       <div class="flex items-center gap-2">
         <span class="h-1.5 w-1.5 bg-zinc-500"></span>
         <span class="text-zinc-500 uppercase">Route Status:</span>

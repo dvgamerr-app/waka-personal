@@ -8,14 +8,12 @@ const links = [
 ]
 ---
 
-{
-  links.map((link) => (
-    <a
-      href={link.href}
-      class={active === link.id ? 'text-sky-300' : 'transition-colors hover:text-zinc-300'}
-      aria-current={active === link.id ? 'page' : undefined}
-    >
-      {link.label}
-    </a>
-  ))
-}
+{links.map((link) => (
+  <a
+    href={link.href}
+    class={active === link.id ? 'text-sky-300' : 'transition-colors hover:text-zinc-300'}
+    aria-current={active === link.id ? 'page' : undefined}
+  >
+    {link.label}
+  </a>
+))}
