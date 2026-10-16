@@ -17,6 +17,7 @@ services:
     environment:
       APP_API_KEY: ${APP_API_KEY:?Set APP_API_KEY in .env (openssl rand -hex 24)}
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-waka_personal}?sslmode=disable
+      AUTO_MIGRATE: 'true'
       APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
@@ -31,7 +32,7 @@ services:
     ports:
       - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d $${POSTGRES_DB}']
       interval: 5s

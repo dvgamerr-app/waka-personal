@@ -23,7 +23,8 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/waka-api ./cmd && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/waka-importer ./cmd/importer
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/waka-importer ./cmd/importer && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/waka-migrate ./cmd/migrate
 
 # Stage 3: Final image
 FROM debian:bookworm-slim
@@ -39,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 COPY --from=go-builder /out/waka-api /usr/local/bin/waka-api
 COPY --from=go-builder /out/waka-importer /usr/local/bin/waka-importer
+COPY --from=go-builder /out/waka-migrate /usr/local/bin/waka-migrate
 COPY --from=frontend-builder /app/dist ./dist
 COPY db/migrations ./db/migrations
 
