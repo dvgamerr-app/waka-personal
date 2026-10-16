@@ -24,6 +24,8 @@
       content="https://dvgamerr.app/waka-personal/screenshots/dashboard.png"
     />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- Filled from the PUBLIC_TRACEWAY_DSN secret at deploy; empty means no telemetry. -->
+    <meta name="traceway-dsn" content="" />
     <style>
       :root {
         --bg: #f4f4f1;
@@ -774,6 +776,24 @@ api_key = REPLACE_ME</code></pre>
           }
         })
         .catch(() => {})
+
+      // Traceway errors and session replay, self-hosted as traceway.js by the Pages workflow.
+      {
+        const dsn = document.querySelector('meta[name="traceway-dsn"]')?.content
+        if (dsn) {
+          const sdk = document.createElement('script')
+          sdk.src = 'traceway.js'
+          sdk.async = true
+          sdk.onload = () => {
+            try {
+              window.Traceway.init(dsn, { recordAllSessions: true })
+            } catch (error) {
+              console.warn('Traceway disabled:', error instanceof Error ? error.message : error)
+            }
+          }
+          document.head.append(sdk)
+        }
+      }
     </script>
   </body>
 </html>

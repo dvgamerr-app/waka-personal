@@ -65,7 +65,9 @@ jobs:
           go mod tidy -diff
       - name: Unit and integration tests
         if: ${{ !cancelled() }}
-        run: go test -count=1 ./...
+        run: |
+          go test -count=1 ./...
+          cd site && bun install --frozen-lockfile && bun test
       - name: Production build
         if: ${{ !cancelled() }}
         run: |

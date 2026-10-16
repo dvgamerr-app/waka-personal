@@ -1,0 +1,7 @@
+{
+  "name": "waka-personal-site",
+  "private": true,
+  "dependencies": {
+    "@tracewayapp/frontend": "1.2.1"
+  }
+}
