@@ -1,5 +1,5 @@
 # Stage 1: Build Astro static files
-FROM --platform=$BUILDPLATFORM oven/bun:latest AS frontend-builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14 AS frontend-builder
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY . .
 RUN bun run build:dist
 
 # Stage 2: Build Go binaries
-FROM --platform=$BUILDPLATFORM golang:1.26.6 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.9 AS go-builder
 
 ARG TARGETOS
 ARG TARGETARCH
