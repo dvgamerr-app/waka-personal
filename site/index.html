@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Waka Personal · Self-hosted WakaTime backend</title>
+    <meta
+      name="description"
+      content="Your own WakaTime backend and coding dashboard. Keep your WakaTime plugins, store every heartbeat in your own PostgreSQL, deploy with one docker compose command."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0b0d0c" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://dvgamerr.app/waka-personal/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Waka Personal · Self-hosted WakaTime backend" />
+    <meta
+      property="og:description"
+      content="Keep your WakaTime plugins. Own every heartbeat. One docker compose command."
+    />
+    <meta property="og:url" content="https://dvgamerr.app/waka-personal/" />
+    <meta
+      property="og:image"
+      content="https://dvgamerr.app/waka-personal/screenshots/dashboard.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #f4f4f1;
+        --surface: #ffffff;
+        --ink: #101211;
+        --ink-2: #4a4f4c;
+        --line: #d9dbd6;
+        --signal: #0f7a3d;
+        --signal-ink: #ffffff;
+        --code-bg: #101211;
+        --code-ink: #e9ece8;
+        --mono:
+          ui-monospace, 'SFMono-Regular', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas,
+          monospace;
+        --sans:
+          system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Noto Sans Thai', sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0b0d0c;
+          --surface: #131614;
+          --ink: #eef1ed;
+          --ink-2: #a3aaa5;
+          --line: #262b28;
+          --signal: #3ee07f;
+          --signal-ink: #06120a;
+          --code-bg: #060707;
+          --code-ink: #e9ece8;
+        }
+      }
+      * {
+        box-sizing: border-box;
+        border-radius: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.6 var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+      }
+      :focus-visible {
+        outline: 2px solid var(--signal);
+        outline-offset: 3px;
+      }
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+      .mono {
+        font-family: var(--mono);
+      }
+      .eyebrow {
+        font: 600 12px/1 var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+      }
+
+      /* Top bar */
+      header.bar {
+        border-bottom: 1px solid var(--line);
+      }
+      header.bar .wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 60px;
+        gap: 16px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font: 700 15px/1 var(--mono);
+        text-decoration: none;
+      }
+      .brand svg {
+        width: 22px;
+        height: 22px;
+      }
+      nav.links {
+        display: flex;
+        gap: 20px;
+        font: 500 14px/1 var(--mono);
+      }
+      nav.links a {
+        text-decoration: none;
+        color: var(--ink-2);
+      }
+      nav.links a:hover {
+        color: var(--ink);
+      }
+
+      /* Hero */
+      .hero {
+        padding: 72px 0 40px;
+      }
+      .hero h1 {
+        margin: 18px 0 18px;
+        font-size: clamp(2.3rem, 6vw, 4.4rem);
+        line-height: 1.02;
+        letter-spacing: -0.035em;
+        max-width: 15ch;
+      }
+      .hero h1 em {
+        font-style: normal;
+        color: var(--signal);
+      }
+      .hero p.lede {
+        max-width: 60ch;
+        font-size: 1.15rem;
+        color: var(--ink-2);
+        margin: 0 0 28px;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 13px 20px;
+        font: 600 15px/1 var(--mono);
+        text-decoration: none;
+        border: 1px solid var(--ink);
+      }
+      .btn.primary {
+        background: var(--signal);
+        border-color: var(--signal);
+        color: var(--signal-ink);
+      }
+      .btn.ghost:hover {
+        background: var(--ink);
+        color: var(--bg);
+      }
+      .btn.primary:hover {
+        filter: brightness(1.08);
+      }
+
+      /* Heartbeat line */
+      .pulse {
+        margin: 48px 0 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        height: 72px;
+        overflow: hidden;
+      }
+      .pulse svg {
+        display: block;
+        width: 200%;
+        height: 72px;
+        animation: scroll 14s linear infinite;
+      }
+      .pulse path {
+        fill: none;
+        stroke: var(--signal);
+        stroke-width: 2;
+      }
+      @keyframes scroll {
+        to {
+          transform: translateX(-50%);
+        }
+      }
+
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        border-bottom: 1px solid var(--line);
+      }
+      .facts div {
+        padding: 18px 16px;
+        border-right: 1px solid var(--line);
+      }
+      .facts div:last-child {
+        border-right: 0;
+      }
+      .facts b {
+        display: block;
+        font: 700 1.6rem/1.1 var(--mono);
+      }
+      .facts span {
+        font-size: 14px;
+        color: var(--ink-2);
+      }
+
+      section {
+        padding: 72px 0;
+      }
+      section h2 {
+        margin: 10px 0 14px;
+        font-size: clamp(1.7rem, 3.5vw, 2.4rem);
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+      }
+      section p.sub {
+        margin: 0 0 32px;
+        color: var(--ink-2);
+        max-width: 62ch;
+      }
+
+      /* Screenshot */
+      .shot {
+        border: 1px solid var(--line);
+        background: var(--surface);
+        padding: 10px;
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .shot-bar {
+        display: flex;
+        gap: 6px;
+        padding: 0 0 10px;
+      }
+      .shot-bar i {
+        width: 10px;
+        height: 10px;
+        background: var(--line);
+      }
+      .thumbs {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 16px;
+      }
+      .thumbs figure {
+        margin: 0;
+        border: 1px solid var(--line);
+        background: var(--surface);
+      }
+      .thumbs img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .thumbs figcaption {
+        padding: 10px 12px;
+        font: 500 13px/1.3 var(--mono);
+        color: var(--ink-2);
+        border-top: 1px solid var(--line);
+      }
+
+      /* Features */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        border-top: 1px solid var(--line);
+        border-left: 1px solid var(--line);
+      }
+      .grid article {
+        padding: 24px;
+        border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+      .grid h3 {
+        margin: 0 0 8px;
+        font: 700 15px/1.3 var(--mono);
+      }
+      .grid h3::before {
+        content: '▍';
+        color: var(--signal);
+        margin-right: 6px;
+      }
+      .grid p {
+        margin: 0;
+        color: var(--ink-2);
+        font-size: 15px;
+      }
+
+      /* Steps and code */
+      .steps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 32px;
+        align-items: start;
+      }
+      ol.plain {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: s;
+      }
+      ol.plain li {
+        counter-increment: s;
+        position: relative;
+        padding: 0 0 22px 48px;
+      }
+      ol.plain li::before {
+        content: counter(s, decimal-leading-zero);
+        position: absolute;
+        left: 0;
+        top: 0;
+        font: 700 14px/1.6 var(--mono);
+        color: var(--signal);
+      }
+      ol.plain b {
+        display: block;
+      }
+      ol.plain span {
+        color: var(--ink-2);
+        font-size: 15px;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+      }
+      .code {
+        position: relative;
+        background: var(--code-bg);
+        color: var(--code-ink);
+        border: 1px solid var(--line);
+      }
+      .code + .code {
+        margin-top: 16px;
+      }
+      .code .label {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid #262b28;
+        font: 600 12px/1 var(--mono);
+        color: #a3aaa5;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+      .code pre {
+        margin: 0;
+        padding: 16px;
+        overflow-x: auto;
+        font: 14px/1.65 var(--mono);
+      }
+      .code .c {
+        color: #7f8a83;
+      }
+      .copy {
+        font: 600 12px/1 var(--mono);
+        background: transparent;
+        color: #e9ece8;
+        border: 1px solid #3a413d;
+        padding: 6px 10px;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .copy:hover {
+        border-color: #3ee07f;
+        color: #3ee07f;
+      }
+
+      /* Star CTA */
+      .cta {
+        border: 1px solid var(--ink);
+        padding: 40px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 24px;
+        align-items: center;
+        background: var(--surface);
+      }
+      .cta h2 {
+        margin: 0 0 8px;
+      }
+      .cta p {
+        margin: 0;
+        color: var(--ink-2);
+      }
+      .cta .actions {
+        justify-content: flex-end;
+      }
+      #stars:empty {
+        display: none;
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 32px 0 48px;
+        font-size: 14px;
+        color: var(--ink-2);
+      }
+      footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      @media (max-width: 860px) {
+        .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+        .steps {
+          grid-template-columns: 1fr;
+        }
+        .cta {
+          grid-template-columns: 1fr;
+          padding: 28px;
+        }
+        .cta .actions {
+          justify-content: flex-start;
+        }
+      }
+      @media (max-width: 600px) {
+        nav.links a.hide-sm {
+          display: none;
+        }
+        .hero {
+          padding-top: 48px;
+        }
+        .facts {
+          grid-template-columns: 1fr 1fr;
+        }
+        .facts div:nth-child(2) {
+          border-right: 0;
+        }
+        .facts div:nth-child(-n + 2) {
+          border-bottom: 1px solid var(--line);
+        }
+        .grid,
+        .thumbs {
+          grid-template-columns: 1fr;
+        }
+        section {
+          padding: 56px 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        .pulse svg {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="bar">
+      <div class="wrap">
+        <a class="brand" href="./" aria-label="Waka Personal home">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="square"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+            <path d="M12 18V6" />
+          </svg>
+          waka-personal
+        </a>
+        <nav class="links" aria-label="Primary">
+          <a class="hide-sm" href="#features">Features</a>
+          <a href="#deploy">Deploy</a>
+          <a href="https://github.com/dvgamerr-app/waka-personal">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="wrap hero">
+        <span class="eyebrow">Self-hosted · WakaTime-compatible · Open source</span>
+        <h1>Your coding stats, <em>on your own server.</em></h1>
+        <p class="lede">
+          Waka Personal is a WakaTime backend and dashboard you run yourself. Keep the plugins you
+          already use, change one URL, and every heartbeat lands in your own PostgreSQL. No
+          subscription, no third-party account.
+        </p>
+        <div class="actions">
+          <a class="btn primary" href="#deploy">Deploy in 5 minutes →</a>
+          <a class="btn ghost" href="https://github.com/dvgamerr-app/waka-personal"
+            >View on GitHub</a
+          >
+        </div>
+      </div>
+
+      <div class="pulse" aria-hidden="true">
+        <svg viewBox="0 0 1200 72" preserveAspectRatio="none">
+          <path
+            d="M0 40 H90 l10 -22 l12 40 l10 -28 l8 10 H260 l8 -14 l10 30 l10 -24 H420 l10 -30 l12 46 l10 -26 l8 10 H600 M600 40 H690 l10 -22 l12 40 l10 -28 l8 10 H860 l8 -14 l10 30 l10 -24 H1020 l10 -30 l12 46 l10 -26 l8 10 H1200"
+          />
+        </svg>
+      </div>
+      <div class="wrap">
+        <div class="facts">
+          <div>
+            <b>2</b><span>settings in <code>.env</code></span>
+          </div>
+          <div><b>1</b><span>command to start</span></div>
+          <div><b>amd64</b><span>and arm64 images</span></div>
+          <div><b>0</b><span>plugin changes besides the URL</span></div>
+        </div>
+      </div>
+
+      <section aria-labelledby="see">
+        <div class="wrap">
+          <span class="eyebrow">See it</span>
+          <h2 id="see">A dashboard that reads like a terminal.</h2>
+          <p class="sub">
+            Daily totals, languages, projects and editors, with a live view that refreshes every 60
+            seconds. Screenshots use generated demo data.
+          </p>
+          <div class="shot">
+            <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+            <img
+              src="screenshots/dashboard.png"
+              width="1440"
+              height="900"
+              alt="Waka Personal dashboard showing daily coding time, top languages and projects"
+            />
+          </div>
+          <div class="thumbs">
+            <figure>
+              <img
+                src="screenshots/project.png"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Project detail page with files, branches and languages"
+              />
+              <figcaption>Project detail</figcaption>
+            </figure>
+            <figure>
+              <img
+                src="screenshots/insights.png"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Insights page with focus score and session statistics"
+              />
+              <figcaption>Insights</figcaption>
+            </figure>
+            <figure>
+              <img
+                src="screenshots/wrapped.png"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Annual Wrapped recap with an activity matrix"
+              />
+              <figcaption>Wrapped</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" aria-labelledby="feat">
+        <div class="wrap">
+          <span class="eyebrow">Features</span>
+          <h2 id="feat">Everything WakaTime gives you, kept at home.</h2>
+          <p class="sub">One Go binary serves the API and the dashboard from the same origin.</p>
+          <div class="grid">
+            <article>
+              <h3>WakaTime-compatible API</h3>
+              <p>
+                Heartbeats, bulk ingest, durations, summaries, stats, status bar and file experts.
+              </p>
+            </article>
+            <article>
+              <h3>Built-in dashboard</h3>
+              <p>See where your time went by day, language, project and editor.</p>
+            </article>
+            <article>
+              <h3>Project detail</h3>
+              <p>Drill into one project: files, branches, languages and time per day.</p>
+            </article>
+            <article>
+              <h3>Insights</h3>
+              <p>Focus score, session length, context switches and when deep work happens.</p>
+            </article>
+            <article>
+              <h3>Wrapped</h3>
+              <p>An annual recap with an activity matrix, peak day, streaks and AI coding stats.</p>
+            </article>
+            <article>
+              <h3>AI coding telemetry</h3>
+              <p>AI sessions and token usage, plus a model pricing table for cost estimates.</p>
+            </article>
+            <article>
+              <h3>Backup importer</h3>
+              <p>
+                Bring your old WakaTime <code>.json</code> or <code>.json.gz</code> export along.
+              </p>
+            </article>
+            <article>
+              <h3>Single-user auth</h3>
+              <p>One API key, checked exactly the way WakaTime plugins send it.</p>
+            </article>
+            <article>
+              <h3>Production defaults</h3>
+              <p>Rate limiting, security headers, health probes and a non-root container.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="deploy" aria-labelledby="dep">
+        <div class="wrap">
+          <span class="eyebrow">Get started</span>
+          <h2 id="dep">Deploy in 5 minutes.</h2>
+          <p class="sub">You need Docker with the Compose plugin. Nothing else.</p>
+          <div class="steps">
+            <ol class="plain">
+              <li>
+                <b>Download two files</b>
+                <span>The compose file and the environment template.</span>
+              </li>
+              <li>
+                <b>Set two values</b>
+                <span
+                  >Replace <code>APP_API_KEY</code> and <code>POSTGRES_PASSWORD</code> in
+                  <code>.env</code>.</span
+                >
+              </li>
+              <li>
+                <b>Start it</b>
+                <span>The database schema is created on first start.</span>
+              </li>
+              <li>
+                <b>Point your editor at it</b>
+                <span
+                  >Set <code>api_url</code> and <code>api_key</code> in
+                  <code>~/.wakatime.cfg</code>, then open the dashboard on port 8080.</span
+                >
+              </li>
+            </ol>
+            <div>
+              <div class="code">
+                <div class="label">
+                  <span>shell</span
+                  ><button class="copy" type="button" data-copy="deploy">Copy</button>
+                </div>
+                <pre id="deploy-code"><code>mkdir waka-personal &amp;&amp; cd waka-personal
+curl -fsSLO https://raw.githubusercontent.com/dvgamerr-app/waka-personal/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/dvgamerr-app/waka-personal/main/.env.example -o .env
+<span class="c"># edit APP_API_KEY and POSTGRES_PASSWORD in .env</span>
+docker compose up -d</code></pre>
+              </div>
+              <div class="code">
+                <div class="label">
+                  <span>~/.wakatime.cfg</span
+                  ><button class="copy" type="button" data-copy="cfg">Copy</button>
+                </div>
+                <pre id="cfg-code"><code>[settings]
+api_url = http://YOUR_HOST:8080/api/v1
+api_key = REPLACE_ME</code></pre>
+              </div>
+            </div>
+          </div>
+          <p class="sub" style="margin-top: 24px">
+            HTTPS, backups, upgrades and importing old data are covered in the
+            <a href="https://github.com/dvgamerr-app/waka-personal/blob/main/docs/self-hosting.md"
+              >self-hosting guide</a
+            >.
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="use">
+        <div class="wrap">
+          <span class="eyebrow">Use it</span>
+          <h2 id="use">It speaks WakaTime.</h2>
+          <p class="sub">
+            Plugins just work. You can also call the API directly; the key goes in as the Basic-auth
+            username, exactly like the plugins send it.
+          </p>
+          <div class="code">
+            <div class="label">
+              <span>shell</span><button class="copy" type="button" data-copy="use">Copy</button>
+            </div>
+            <pre
+              id="use-code"
+            ><code>curl -u "REPLACE_ME:" http://YOUR_HOST:8080/api/v1/users/current/statusbar/today</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="star">
+        <div class="wrap">
+          <div class="cta">
+            <div>
+              <h2 id="star">Saved you a subscription?</h2>
+              <p>
+                A star helps other developers find Waka Personal. Bugs and ideas are welcome in the
+                issue tracker.
+              </p>
+            </div>
+            <div class="actions">
+              <a class="btn primary" href="https://github.com/dvgamerr-app/waka-personal/stargazers"
+                >★ Star on GitHub <span id="stars" class="mono"></span
+              ></a>
+              <a class="btn ghost" href="https://github.com/dvgamerr-app/waka-personal/issues"
+                >Open an issue</a
+              >
+              <a class="btn ghost" href="https://github.com/sponsors/dvgamerr">Sponsor</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span
+          >Source on
+          <a href="https://github.com/dvgamerr-app/waka-personal"
+            >github.com/dvgamerr-app/waka-personal</a
+          >.</span
+        >
+        <span>An independent project, not affiliated with WakaTime.</span>
+      </div>
+    </footer>
+
+    <script>
+      document.querySelectorAll('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const text = document.getElementById(button.dataset.copy + '-code').innerText
+          try {
+            await navigator.clipboard.writeText(text)
+            button.textContent = 'Copied'
+          } catch {
+            button.textContent = 'Select & copy'
+          }
+          setTimeout(() => (button.textContent = 'Copy'), 1800)
+        })
+      })
+      fetch('https://api.github.com/repos/dvgamerr-app/waka-personal')
+        .then((response) => (response.ok ? response.json() : null))
+        .then((repo) => {
+          if (repo && repo.stargazers_count > 0) {
+            document.getElementById('stars').textContent = '· ' + repo.stargazers_count
+          }
+        })
+        .catch(() => {})
+    </script>
+  </body>
+</html>
