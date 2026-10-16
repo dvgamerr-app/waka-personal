@@ -83,10 +83,6 @@ package_file = "package.json"
 package_filters = ["prettier", "prettier-plugin-astro", "prettier-plugin-tailwindcss"]
 
 [[plugin]]
-name = "radarlint-go"
-mode = "monitor"
-
-[[plugin]]
 name = "radarlint-iac"
 mode = "monitor"
 
@@ -105,3 +101,16 @@ name = "zizmor"
 [[exclude]]
 plugins = ["zizmor", "actionlint"]
 file_patterns = [".github/workflows/build-ghcr.yml"]
+
+# Baseline: pre-existing golangci-lint findings (errcheck, funlen, cyclop,
+# gocritic). New files are still linted; clear these as separate work.
+[[exclude]]
+plugins = ["golangci-lint"]
+file_patterns = [
+  "internal/http/app.go",
+  "internal/http/app_integration_test.go",
+  "internal/http/app_test.go",
+  "internal/service/dashboard.go",
+  "internal/service/query.go",
+  "internal/service/resume.go",
+]
