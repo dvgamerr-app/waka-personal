@@ -39,6 +39,13 @@ func run() error {
 	log.Logger = logger
 
 	ctx := context.Background()
+	if cfg.AutoMigrate {
+		if err := store.ApplyMigrations(ctx, cfg.DatabaseURL, cfg.MigrationDir, cfg.GooseTable); err != nil {
+			logger.Error().Err(err).Msg("failed to apply migrations")
+			return err
+		}
+	}
+
 	db, err := store.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to connect to database")

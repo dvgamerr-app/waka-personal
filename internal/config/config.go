@@ -18,6 +18,7 @@ type Config struct {
 	KeystrokeTimeoutMinutes int
 	WritesOnly              bool
 	CORSAllowOrigins        []string
+	AutoMigrate             bool
 	MigrationDir            string
 	GooseTable              string
 
@@ -42,6 +43,7 @@ func Load() *Config {
 		KeystrokeTimeoutMinutes: getEnvInt("KEYSTROKE_TIMEOUT_MINUTES", 15),
 		WritesOnly:              getEnvBool("WRITES_ONLY", false),
 		CORSAllowOrigins:        getEnvList("CORS_ALLOW_ORIGINS", []string{"*"}),
+		AutoMigrate:             getEnvBool("AUTO_MIGRATE", false),
 		MigrationDir:            getEnv("MIGRATION_DIR", "db/migrations"),
 		GooseTable:              getEnv("GOOSE_TABLE", "goose_db_version"),
 
