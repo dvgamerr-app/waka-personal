@@ -1,5 +1,5 @@
 # Stage 1: Build Astro static files
-FROM --platform=$BUILDPLATFORM oven/bun:latest AS frontend-builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14 AS frontend-builder
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY . .
 RUN bun run build:dist
 
 # Stage 2: Build Go binaries
-FROM --platform=$BUILDPLATFORM golang:1.26.6 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.9 AS go-builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/waka-ap
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/waka-importer ./cmd/importer
 
 # Stage 3: Final image
-FROM --platform=$TARGETPLATFORM debian:bookworm-slim
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
