@@ -71,7 +71,8 @@
 # Gotchas
 
 - **Auth is bypassed when `APP_API_KEY` is empty** — always set this in production
-- **docker-compose DB name is `dvgamerr`**, but config default is `waka_personal` — set `DATABASE_URL` explicitly
+- **Startup migrations are opt-in** — the API runs `goose up` only when `AUTO_MIGRATE=true` (set by `docker-compose.yml`); otherwise run `go run ./cmd/migrate up`
+- **docker-compose uses `postgres:18`**, which needs the volume at `/var/lib/postgresql`, not `/var/lib/postgresql/data`
 - **DuckDB importer** is behind a build tag (`importer_duckdb.go` + stub `importer_duckdb_stub.go`) — normal builds use the stub
 - **Import batches are not auto-cleaned** on failure; retry is safe due to SHA256 deduplication
 - **WakaTime plugins send API key as Basic-auth username** — `Authorization: Basic base64(<key>:)`

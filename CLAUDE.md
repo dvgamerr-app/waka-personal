@@ -45,6 +45,10 @@ tests on Windows require a CGO-capable toolchain and GCC.
 - `.env.example` is the public template; `.env` must stay ignored.
 - Never log or document API keys, database credentials, heartbeat contents, or
   imported backup data.
+- `PUBLIC_TRACEWAY_DSN` is a repository secret used only by the Pages workflow:
+  `site/inject-dsn.js` writes it into `site/index.html`, which then loads the
+  self-hosted Traceway browser SDK. Without it the landing page loads no
+  telemetry. The dashboard app does not use Traceway.
 - Keep `PUBLIC_API_BASE` normalization and timezone fallbacks behaviorally
   consistent across every static page.
 

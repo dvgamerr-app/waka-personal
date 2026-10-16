@@ -19,6 +19,15 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		url := "http://127.0.0.1:" + config.Load().HTTPPort + "/healthz/ready"
+		if err := healthcheck(context.Background(), url); err != nil {
+			log.Error().Err(err).Msg("healthcheck failed")
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := run(); err != nil {
 		os.Exit(1)
 	}
@@ -30,6 +39,13 @@ func run() error {
 	log.Logger = logger
 
 	ctx := context.Background()
+	if cfg.AutoMigrate {
+		if err := store.ApplyMigrations(ctx, cfg.DatabaseURL, cfg.MigrationDir, cfg.GooseTable); err != nil {
+			logger.Error().Err(err).Msg("failed to apply migrations")
+			return err
+		}
+	}
+
 	db, err := store.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to connect to database")
