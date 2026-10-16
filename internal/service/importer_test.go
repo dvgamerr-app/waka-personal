@@ -52,7 +52,7 @@ func TestMapBackupUserToSnapshot(t *testing.T) {
 }
 
 func TestDuckDBPath(t *testing.T) {
-	got := duckDBPath(`E:\tmp\waka's\backup.json.gz`)
+	got := duckDBPath(filepath.FromSlash("E:/tmp/waka's/backup.json.gz"))
 	want := "E:/tmp/waka''s/backup.json.gz"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
