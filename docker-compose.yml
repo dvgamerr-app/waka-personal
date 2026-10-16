@@ -1,17 +1,39 @@
+# Self-host Waka Personal:
+#   cp .env.example .env   # set APP_API_KEY and POSTGRES_PASSWORD
+#   docker compose up -d
+# Then point WakaTime plugins at http://YOUR_HOST:8080/api/v1
+#
+# Local development only needs the database:
+#   docker compose up -d postgres
 services:
+  app:
+    image: ghcr.io/dvgamerr-app/waka-personal:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '${PORT:-8080}:8080'
+    environment:
+      APP_API_KEY: ${APP_API_KEY:?Set APP_API_KEY in .env (openssl rand -hex 24)}
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-waka_personal}?sslmode=disable
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: dvgamerr
+      POSTGRES_DB: ${POSTGRES_DB:-waka_personal}
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    # Published on localhost only, for `go run ./cmd` during development.
     ports:
-      - '5432:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres -d dvgamerr']
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d $${POSTGRES_DB}']
       interval: 5s
       timeout: 5s
       retries: 20
