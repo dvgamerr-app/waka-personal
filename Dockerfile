@@ -36,7 +36,8 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/* && \
-    useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin waka
+    groupadd --system --gid 10001 waka && \
+    useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin waka
 
 COPY --from=go-builder /out/waka-api /usr/local/bin/waka-api
 COPY --from=go-builder /out/waka-importer /usr/local/bin/waka-importer
@@ -44,7 +45,7 @@ COPY --from=go-builder /out/waka-migrate /usr/local/bin/waka-migrate
 COPY --from=frontend-builder /app/dist ./dist
 COPY db/migrations ./db/migrations
 
-USER waka
+USER 10001:10001
 
 EXPOSE 8080
 
