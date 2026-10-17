@@ -76,15 +76,22 @@ func (s *ImportService) ImportBackupFile(ctx context.Context, options ImportOpti
 		return nil, err
 	}
 
-	if profileErr := s.importProfileSnapshot(ctx, batch.ID, rawUser); profileErr != nil {
-		return nil, profileErr
-	}
-
 	if options.DryRun {
+		// A dry run validates the profile metadata but must not overwrite the
+		// stored profile (timezone, timeout, writes_only).
+		if len(rawUser) > 0 {
+			if _, mapErr := mapBackupUserToSnapshot(rawUser); mapErr != nil {
+				return nil, s.failBatch(ctx, batch.ID, mapErr)
+			}
+		}
 		if updateErr := s.store.UpdateImportBatchStatus(ctx, batch.ID, "dry-run", 0, 0, nil); updateErr != nil {
 			return nil, updateErr
 		}
 		return &ImportResult{BatchID: batch.ID}, nil
+	}
+
+	if profileErr := s.importProfileSnapshot(ctx, batch.ID, rawUser); profileErr != nil {
+		return nil, profileErr
 	}
 
 	imported, skipped, err := s.importHeartbeats(ctx, batch.ID, resolvedPath)
@@ -315,19 +322,19 @@ COPY (
   )
   SELECT
     COALESCE(json_extract_string(hb_json, '$.id'), '') AS source_heartbeat_id,
-    COALESCE(json_extract_string(hb_json, '$.time'), '') AS time,
+    COALESCE(json_extract_string(hb_json, '$.time'), json_extract_string(hb_json, '$.timestamp'), '') AS time,
     COALESCE(json_extract_string(hb_json, '$.created_at'), '') AS source_created_at,
     COALESCE(json_extract_string(hb_json, '$.entity'), '') AS entity,
-    COALESCE(json_extract_string(hb_json, '$.type'), 'file') AS type,
-    COALESCE(json_extract_string(hb_json, '$.category'), 'coding') AS category,
-    COALESCE(json_extract_string(hb_json, '$.project'), '') AS project,
+    lower(COALESCE(NULLIF(json_extract_string(hb_json, '$.type'), ''), NULLIF(json_extract_string(hb_json, '$.entity_type'), ''), 'file')) AS type,
+    lower(COALESCE(NULLIF(json_extract_string(hb_json, '$.category'), ''), 'coding')) AS category,
+    COALESCE(NULLIF(json_extract_string(hb_json, '$.project'), ''), json_extract_string(hb_json, '$.alternate_project'), '') AS project,
     COALESCE(json_extract_string(hb_json, '$.branch'), '') AS branch,
-    COALESCE(json_extract_string(hb_json, '$.language'), '') AS language,
+    COALESCE(NULLIF(json_extract_string(hb_json, '$.language'), ''), json_extract_string(hb_json, '$.alternate_language'), '') AS language,
     COALESCE(json_extract_string(hb_json, '$.project_root_count'), '') AS project_root_count,
     COALESCE(json_extract_string(hb_json, '$.project_folder'), '') AS project_folder,
     COALESCE(json_extract_string(hb_json, '$.lineno'), '') AS lineno,
     COALESCE(json_extract_string(hb_json, '$.cursorpos'), '') AS cursorpos,
-    COALESCE(json_extract_string(hb_json, '$.lines'), '') AS lines,
+    COALESCE(json_extract_string(hb_json, '$.lines'), json_extract_string(hb_json, '$.lines_in_file'), '') AS lines,
     COALESCE(json_extract_string(hb_json, '$.is_write'), 'false') AS is_write,
     COALESCE(json_extract_string(hb_json, '$.is_unsaved_entity'), 'false') AS is_unsaved_entity,
     COALESCE(json_extract_string(hb_json, '$.ai_line_changes'), '') AS ai_line_changes,

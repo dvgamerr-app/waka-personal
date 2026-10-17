@@ -32,7 +32,9 @@ FROM heartbeats
 WHERE (source_machine_name_id IS NULL OR source_machine_name_id = '')
   AND machine_name IS NOT NULL
   AND machine_name <> ''
-ON CONFLICT (id) DO NOTHING;
+-- A machine name adopted above already owns its unique row; skip it instead of
+-- failing on idx_source_machine_names_machine_name.
+ON CONFLICT DO NOTHING;
 
 UPDATE heartbeats AS heartbeats
 SET source_machine_name_id = machines.id

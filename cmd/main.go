@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -65,16 +66,23 @@ func run() error {
 	})
 
 	logger.Info().Str("port", cfg.HTTPPort).Msg("Starting Gofiber")
+	listenErr := make(chan error, 1)
 	go func() {
 		if err := app.Listen(":" + cfg.HTTPPort); err != nil && !strings.Contains(strings.ToLower(err.Error()), "server closed") {
 			logger.Error().Err(err).Msg("fiber server exited")
+			listenErr <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	logger.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+	select {
+	case sig := <-quit:
+		logger.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+	case err := <-listenErr:
+		checker.SetReady(false)
+		return fmt.Errorf("listen on port %s: %w", cfg.HTTPPort, err)
+	}
 
 	checker.SetReady(false)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

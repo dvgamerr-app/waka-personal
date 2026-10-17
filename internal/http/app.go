@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +20,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/rs/zerolog/log"
 
 	"waka-personal/internal/config"
 	"waka-personal/internal/domain"
@@ -32,12 +36,12 @@ type HeartbeatIngester interface {
 
 type QueryReader interface {
 	Activity(ctx context.Context, params domain.ActivityQueryParams, now time.Time) (domain.ActivityOverview, error)
-	HeartbeatsForDate(ctx context.Context, day time.Time) ([]domain.HeartbeatRecord, time.Time, time.Time, string, error)
-	DeleteHeartbeatsForDate(ctx context.Context, day time.Time, ids []string) (int64, error)
+	HeartbeatsForDate(ctx context.Context, day time.Time, timezone string) ([]domain.HeartbeatRecord, time.Time, time.Time, string, error)
+	DeleteHeartbeatsForDate(ctx context.Context, day time.Time, timezone string, ids []string) (int64, error)
 	Durations(ctx context.Context, params domain.DurationQueryParams) ([]map[string]any, time.Time, time.Time, string, error)
 	Summaries(ctx context.Context, params domain.SummaryQueryParams) ([]map[string]any, error)
 	Stats(ctx context.Context, params domain.StatsQueryParams) (map[string]any, error)
-	StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error)
+	StatusbarToday(ctx context.Context, now time.Time, timezone string) (map[string]any, error)
 	FileExperts(ctx context.Context, entity, project string, projectRootCount *int, now time.Time) ([]map[string]any, error)
 	Resume(ctx context.Context, params domain.ResumeQueryParams) (domain.ResumeOverview, error)
 }
@@ -69,8 +73,15 @@ func newAppErrorHandler() fiber.ErrorHandler {
 		if err == nil {
 			err = errors.New("unknown error")
 		}
-		return c.Status(statusCodeForError(err)).JSON(fiber.Map{
-			"error": err.Error(),
+		status := statusCodeForError(err)
+		message := err.Error()
+		if status >= fiber.StatusInternalServerError {
+			// Details are logged by the request logger; do not expose store or
+			// panic messages to clients.
+			message = "internal server error"
+		}
+		return c.Status(status).JSON(fiber.Map{
+			"error": message,
 		})
 	}
 }
@@ -78,18 +89,28 @@ func newAppErrorHandler() fiber.ErrorHandler {
 func configureAppMiddleware(app *fiber.App, cfg *config.Config) {
 	app.Use(requestid.New())
 	app.Use(securityHeadersMiddleware())
-	app.Use(recover.New())
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:     strings.Join(cfg.CORSAllowOrigins, ","),
-		AllowHeaders:     "Authorization, Content-Type, X-Machine-Name",
-		AllowMethods:     "GET,POST,DELETE,OPTIONS",
-		AllowCredentials: false,
+	app.Use(recover.New(recover.Config{
+		EnableStackTrace: true,
+		StackTraceHandler: func(_ *fiber.Ctx, recovered any) {
+			log.Error().Interface("panic", recovered).Bytes("stack", debug.Stack()).Msg("panic recovered")
+		},
 	}))
+	// The dashboard is served from the same origin, so cross-origin access is
+	// opt-in through CORS_ALLOW_ORIGINS. Without it no CORS headers are sent.
+	if len(cfg.CORSAllowOrigins) > 0 {
+		app.Use(cors.New(cors.Config{
+			AllowOrigins:     strings.Join(cfg.CORSAllowOrigins, ","),
+			AllowHeaders:     "Authorization, Content-Type, X-Machine-Name",
+			AllowMethods:     "GET,POST,DELETE,OPTIONS",
+			AllowCredentials: false,
+		}))
+	}
 	app.Use("/api", limiter.New(limiter.Config{
 		Max:        60,
 		Expiration: time.Minute,
-		KeyGenerator: func(_ *fiber.Ctx) string {
-			return "global"
+		// Count per client so one noisy caller cannot lock everyone else out.
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP()
 		},
 		LimitReached: func(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
@@ -180,13 +201,15 @@ func registerDashboardRoutes(app *fiber.App, services Services) {
 	api.Get("/resume", resumeHandler(services.Query))
 }
 
+const maxResumeMonths = 120
+
 func resumeHandler(query QueryReader) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		months := 0
 		if raw := strings.TrimSpace(c.Query("months")); raw != "" {
 			parsed, err := strconv.Atoi(raw)
-			if err != nil || parsed <= 0 {
-				return fiber.NewError(fiber.StatusBadRequest, "months must be a positive integer")
+			if err != nil || parsed <= 0 || parsed > maxResumeMonths {
+				return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("months must be an integer between 1 and %d", maxResumeMonths))
 			}
 			months = parsed
 		}
@@ -398,7 +421,7 @@ func getHeartbeatsHandler(query QueryReader) fiber.Handler {
 			return err
 		}
 
-		records, start, end, timezone, err := query.HeartbeatsForDate(c.Context(), day)
+		records, start, end, timezone, err := query.HeartbeatsForDate(c.Context(), day, c.Query("timezone"))
 		if err != nil {
 			return err
 		}
@@ -446,6 +469,9 @@ func deleteHeartbeatsHandler(query QueryReader) fiber.Handler {
 		var payload struct {
 			Date string   `json:"date"`
 			IDs  []string `json:"ids"`
+			All  bool     `json:"all"`
+			// Timezone defines the local day to delete; the profile timezone is used when empty.
+			Timezone string `json:"timezone"`
 		}
 		if err := decodeJSONBody(c.Body(), &payload); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -458,8 +484,11 @@ func deleteHeartbeatsHandler(query QueryReader) fiber.Handler {
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "date must use YYYY-MM-DD format")
 		}
+		if len(payload.IDs) == 0 && !payload.All {
+			return fiber.NewError(fiber.StatusBadRequest, `ids is required; pass "all": true to delete every heartbeat on the date`)
+		}
 
-		deleted, err := query.DeleteHeartbeatsForDate(c.Context(), day, payload.IDs)
+		deleted, err := query.DeleteHeartbeatsForDate(c.Context(), day, payload.Timezone, payload.IDs)
 		if err != nil {
 			return err
 		}
@@ -564,7 +593,7 @@ func statsHandler(query QueryReader) fiber.Handler {
 
 func statusbarTodayHandler(query QueryReader) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		data, err := query.StatusbarToday(c.Context(), time.Now().UTC())
+		data, err := query.StatusbarToday(c.Context(), time.Now().UTC(), c.Query("timezone"))
 		if err != nil {
 			return err
 		}
@@ -615,8 +644,8 @@ func parseOptionalIntQuery(value string) (*int, error) {
 	if trimmed == "" {
 		return nil, nil
 	}
-	var parsed int
-	if _, err := fmt.Sscanf(trimmed, "%d", &parsed); err != nil {
+	parsed, err := strconv.Atoi(trimmed)
+	if err != nil {
 		return nil, fmt.Errorf("invalid integer query value %q", value)
 	}
 	return &parsed, nil
@@ -670,15 +699,14 @@ func tokenMetrics(stats map[string]any) map[string]any {
 // Falls back to flat Claude Sonnet rate when no model data is present.
 func spendMetrics(stats map[string]any) map[string]any {
 	var totalCents, inputTokens, outputTokens int64
-	if aiModels, ok := stats["ai_models"].([]map[string]any); ok {
-		for _, m := range aiModels {
-			totalCents += toInt64(m["spend_cents"])
-			inputTokens += toInt64(m["input_tokens"])
-			outputTokens += toInt64(m["output_tokens"])
-		}
+	aiModels, hasModels := stats["ai_models"].([]map[string]any)
+	for _, m := range aiModels {
+		totalCents += toInt64(m["spend_cents"])
+		inputTokens += toInt64(m["input_tokens"])
+		outputTokens += toInt64(m["output_tokens"])
 	}
-	// ponytail: flat-rate fallback when no model data
-	if totalCents == 0 {
+	// Flat-rate fallback only when the response carries no per-model data.
+	if !hasModels {
 		inputTokens = toInt64(stats["ai_input_tokens"])
 		outputTokens = toInt64(stats["ai_output_tokens"])
 		totalCents = int64(float64(inputTokens)*0.003/1000*100) + int64(float64(outputTokens)*0.015/1000*100)
@@ -701,6 +729,14 @@ func toInt64(v any) int64 {
 	case int:
 		return int64(val)
 	case float64:
+		return int64(val)
+	case float32:
+		return int64(val)
+	case int32:
+		return int64(val)
+	case uint:
+		return int64(val)
+	case uint64:
 		return int64(val)
 	default:
 		return 0
@@ -780,7 +816,7 @@ func dashboardHandler(query QueryReader) fiber.Handler {
 				summariesRes.data, summariesRes.err = query.Summaries(c.Context(), summaryParams)
 			},
 			func() {
-				todayRes.data, todayRes.err = query.StatusbarToday(c.Context(), time.Now().UTC())
+				todayRes.data, todayRes.err = query.StatusbarToday(c.Context(), time.Now().UTC(), timezone)
 			},
 			func() {
 				projRes.data, _, _, _, projRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: durationDate, SliceBy: "project", Timezone: timezone})
@@ -833,7 +869,7 @@ func liveDashboardHandler(query QueryReader) fiber.Handler {
 		var projRes, langRes, editorRes parallelQueryResult[[]map[string]any]
 		runParallel(
 			func() {
-				todayRes.data, todayRes.err = query.StatusbarToday(c.Context(), now)
+				todayRes.data, todayRes.err = query.StatusbarToday(c.Context(), now, timezone)
 			},
 			func() {
 				projRes.data, _, _, _, projRes.err = query.Durations(c.Context(), domain.DurationQueryParams{Date: todayDate, SliceBy: "project", Timezone: timezone})
@@ -974,6 +1010,11 @@ func wrappedStatsFromSummaries(summaries []map[string]any) map[string]any {
 	activeDays := 0
 	var aiAdditions, aiDeletions, humanAdditions, humanDeletions int64
 	var aiInputTokens, aiOutputTokens int64
+	type modelTotals struct {
+		inputTokens, outputTokens int64
+		spendCents                float64
+	}
+	models := map[string]*modelTotals{}
 
 	for _, summary := range summaries {
 		grandTotal := nestedMap(summary, "grand_total")
@@ -990,6 +1031,19 @@ func wrappedStatsFromSummaries(summaries []map[string]any) map[string]any {
 		aiInputTokens += toInt64(grandTotal["ai_input_tokens"])
 		aiOutputTokens += toInt64(grandTotal["ai_output_tokens"])
 
+		dayModels, _ := summary["ai_models"].([]map[string]any)
+		for _, model := range dayModels {
+			name := toString(model["name"])
+			totals := models[name]
+			if totals == nil {
+				totals = &modelTotals{}
+				models[name] = totals
+			}
+			totals.inputTokens += toInt64(model["input_tokens"])
+			totals.outputTokens += toInt64(model["output_tokens"])
+			totals.spendCents += modelSpendCents(model)
+		}
+
 		if seconds > bestDaySeconds {
 			bestDaySeconds = seconds
 			bestDayDate = nestedString(summary, "range", "date")
@@ -1002,26 +1056,50 @@ func wrappedStatsFromSummaries(summaries []map[string]any) map[string]any {
 
 	dailyAverage = totalSeconds / float64(len(summaries))
 
+	aiModels := make([]map[string]any, 0, len(models))
+	for name, totals := range models {
+		aiModels = append(aiModels, map[string]any{
+			"name":          name,
+			"input_tokens":  totals.inputTokens,
+			"output_tokens": totals.outputTokens,
+			"token_count":   totals.inputTokens + totals.outputTokens,
+			"spend_cents":   int64(math.Round(totals.spendCents)),
+		})
+	}
+	sort.Slice(aiModels, func(i, j int) bool {
+		return toString(aiModels[i]["name"]) < toString(aiModels[j]["name"])
+	})
+
 	return map[string]any{
+		"ai_models":                                             aiModels,
 		"total_seconds_including_other_language":                totalSeconds,
 		"human_readable_total_including_other_language":         humanizeTotalSeconds(totalSeconds),
 		"daily_average_including_other_language":                dailyAverage,
 		"human_readable_daily_average_including_other_language": humanizeTotalSeconds(dailyAverage),
-		"ai_additions":            aiAdditions,
-		"ai_deletions":            aiDeletions,
-		"human_additions":         humanAdditions,
-		"human_deletions":         humanDeletions,
-		"ai_input_tokens":         aiInputTokens,
-		"ai_output_tokens":        aiOutputTokens,
-		"ai_total_tokens":         aiInputTokens + aiOutputTokens,
-		"days_including_holidays": len(summaries),
-		"days_minus_holidays":     activeDays,
+		"ai_additions":                                          aiAdditions,
+		"ai_deletions":                                          aiDeletions,
+		"human_additions":                                       humanAdditions,
+		"human_deletions":                                       humanDeletions,
+		"ai_input_tokens":                                       aiInputTokens,
+		"ai_output_tokens":                                      aiOutputTokens,
+		"ai_total_tokens":                                       aiInputTokens + aiOutputTokens,
+		"days_including_holidays":                               len(summaries),
+		"days_minus_holidays":                                   activeDays,
 		"best_day": map[string]any{
 			"date":          bestDayDate,
 			"text":          bestDayText,
 			"total_seconds": bestDaySeconds,
 		},
 	}
+}
+
+// modelSpendCents prefers the unrounded spend so daily buckets can be summed
+// without accumulating per-day rounding error.
+func modelSpendCents(model map[string]any) float64 {
+	if exact, ok := model["spend_cents_exact"].(float64); ok {
+		return exact
+	}
+	return float64(toInt64(model["spend_cents"]))
 }
 
 func nestedMap(values map[string]any, key string) map[string]any {
@@ -1155,12 +1233,16 @@ func dashboardStatsRange(rangeParam string, now time.Time, loc *time.Location) s
 		return "today"
 	case "yesterday":
 		return "yesterday"
-	case "last 7 days", "last 7 days from yesterday", "this week":
+	case "last 7 days":
 		return "last_7_days"
 	case "last week":
 		return "last_week"
-	case "last 14 days", "last 30 days":
+	case "last 30 days":
 		return "last_30_days"
+	case "last 7 days from yesterday", "this week", "last 14 days":
+		// No stats shortcut covers these windows; the stats service resolves the
+		// preset name itself so totals match the summaries for the same range.
+		return strings.TrimSpace(rangeParam)
 	default:
 		if _, err := time.ParseInLocation("2006-01", rangeName, loc); err == nil {
 			return rangeName

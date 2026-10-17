@@ -186,6 +186,7 @@ On Windows, avoid rebuilding over the same running `.exe` path. `go build -o bin
 ## Notes
 
 - Auth is bypassed when `APP_API_KEY` is empty, so set it in production.
+- `/api/v2/*` never requires the API key (the web UI cannot hold one); see the dashboard access notes in the self-hosting guide before exposing the port.
 - If recent activity looks missing, check for heartbeats stuck in the client's offline queue: `wakatime-cli --offline-count`, then flush with `wakatime-cli --sync-offline-activity 100`.
 - When changing heartbeat persistence or import behavior, check both the live ingest path and the importer path.
 - The dashboard and live endpoints intentionally run independent data reads in parallel. Preserve their partial-result response shape and deterministic `errors` ordering when changing that orchestration.
