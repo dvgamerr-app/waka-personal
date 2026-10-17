@@ -137,9 +137,9 @@ func TestHeartbeatCSVSourceStreamsRowsAndReportsErrors(t *testing.T) {
 	}
 	count := 0
 	for source.Next() {
-		values, err := source.Values()
-		if err != nil || len(values) != 32 {
-			t.Fatalf("row %d: %d values, err %v; want the 32 temp-table columns", count, len(values), err)
+		values, valuesErr := source.Values()
+		if valuesErr != nil || len(values) != 32 {
+			t.Fatalf("row %d: %d values, err %v; want the 32 temp-table columns", count, len(values), valuesErr)
 		}
 		count++
 	}

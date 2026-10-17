@@ -339,28 +339,32 @@ type rowQuerier interface {
 
 // UpsertHeartbeats stores the batch atomically: either every record is saved or
 // none is, so a failed request can be retried as a whole.
-func (s *Store) UpsertHeartbeats(ctx context.Context, records []domain.HeartbeatRecord) ([]domain.HeartbeatRecord, error) {
+func (s *Store) UpsertHeartbeats(ctx context.Context, records []domain.HeartbeatRecord) (out []domain.HeartbeatRecord, err error) {
 	if len(records) == 0 {
 		return nil, nil
 	}
 
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin heartbeat upsert tx: %w", err)
+	tx, beginErr := s.db.Begin(ctx)
+	if beginErr != nil {
+		return nil, fmt.Errorf("begin heartbeat upsert tx: %w", beginErr)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() {
+		if rollbackErr := rollbackImportTx(ctx, tx); rollbackErr != nil {
+			err = errors.Join(err, rollbackErr)
+		}
+	}()
 
-	out := make([]domain.HeartbeatRecord, 0, len(records))
+	out = make([]domain.HeartbeatRecord, 0, len(records))
 	for i := range records {
-		scanned, err := upsertHeartbeatRecord(ctx, tx, &records[i])
-		if err != nil {
-			return nil, err
+		scanned, upsertErr := upsertHeartbeatRecord(ctx, tx, &records[i])
+		if upsertErr != nil {
+			return nil, upsertErr
 		}
 		out = append(out, scanned)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit heartbeat upsert tx: %w", err)
+	if commitErr := tx.Commit(ctx); commitErr != nil {
+		return nil, fmt.Errorf("commit heartbeat upsert tx: %w", commitErr)
 	}
 	return out, nil
 }

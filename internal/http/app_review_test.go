@@ -36,18 +36,18 @@ type testApp interface {
 	Test(req *http.Request, msTimeout ...int) (*http.Response, error)
 }
 
-func doRequest(t *testing.T, app testApp, req *http.Request) (int, string, http.Header) {
+func doRequest(t *testing.T, app testApp, req *http.Request) (status int, body string, headers http.Header) {
 	t.Helper()
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test returned error: %v", err)
 	}
 	t.Cleanup(func() { _ = resp.Body.Close() })
-	body, err := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
-	return resp.StatusCode, string(body), resp.Header
+	return resp.StatusCode, string(raw), resp.Header
 }
 
 func TestIngestInvalidInputIsBadRequest(t *testing.T) {
@@ -56,7 +56,7 @@ func TestIngestInvalidInputIsBadRequest(t *testing.T) {
 		Heartbeats: failingHeartbeats{err: fmt.Errorf("%w: heartbeat entity is required", service.ErrInvalidInput)},
 		Query:      stubQuery{},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/current/heartbeats.bulk", strings.NewReader(`[{"time":1}]`))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/users/current/heartbeats.bulk", strings.NewReader(`[{"time":1}]`))
 	status, body, _ := doRequest(t, app, req)
 	if status != http.StatusBadRequest || !strings.Contains(body, "heartbeat entity is required") {
 		t.Fatalf("status=%d body=%s, want 400 with the validation message", status, body)
@@ -69,7 +69,7 @@ func TestInternalErrorsDoNotLeakDetails(t *testing.T) {
 		Heartbeats: failingHeartbeats{err: fmt.Errorf("upsert heartbeat: password=hunter2 rejected")},
 		Query:      stubQuery{},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/current/heartbeats", strings.NewReader(`{"entity":"x","time":1}`))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/users/current/heartbeats", strings.NewReader(`{"entity":"x","time":1}`))
 	status, body, _ := doRequest(t, app, req)
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status=%d, want 500", status)
@@ -88,7 +88,7 @@ func TestDeleteHeartbeatsRequiresIDsOrExplicitAll(t *testing.T) {
 	})
 
 	for _, body := range []string{`{"date":"2026-10-01"}`, `{"date":"2026-10-01","ids":[]}`} {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/current/heartbeats.bulk", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/users/current/heartbeats.bulk", strings.NewReader(body))
 		if status, resp, _ := doRequest(t, app, req); status != http.StatusBadRequest {
 			t.Fatalf("body %s: status=%d resp=%s, want 400", body, status, resp)
 		}
@@ -98,7 +98,7 @@ func TestDeleteHeartbeatsRequiresIDsOrExplicitAll(t *testing.T) {
 	}
 
 	for _, body := range []string{`{"date":"2026-10-01","ids":["a"]}`, `{"date":"2026-10-01","all":true}`} {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/current/heartbeats.bulk", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/users/current/heartbeats.bulk", strings.NewReader(body))
 		if status, resp, _ := doRequest(t, app, req); status != http.StatusOK {
 			t.Fatalf("body %s: status=%d resp=%s, want 200", body, status, resp)
 		}
@@ -110,19 +110,19 @@ func TestDeleteHeartbeatsRequiresIDsOrExplicitAll(t *testing.T) {
 
 func TestCORSIsOptIn(t *testing.T) {
 	closed := apihttp.NewApp(&config.Config{}, &apihttp.Checker{}, apihttp.Services{Auth: stubAuth{}, Heartbeats: stubHeartbeats{}, Query: stubQuery{}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v2/dashboard?range=Today", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v2/dashboard?range=Today", http.NoBody)
 	req.Header.Set("Origin", "https://evil.example")
 	if _, _, headers := doRequest(t, closed, req); headers.Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("no CORS headers expected by default, got %q", headers.Get("Access-Control-Allow-Origin"))
 	}
 
 	open := apihttp.NewApp(&config.Config{CORSAllowOrigins: []string{"https://app.example"}}, &apihttp.Checker{}, apihttp.Services{Auth: stubAuth{}, Heartbeats: stubHeartbeats{}, Query: stubQuery{}})
-	allowed := httptest.NewRequest(http.MethodGet, "/api/v2/dashboard?range=Today", http.NoBody)
+	allowed := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v2/dashboard?range=Today", http.NoBody)
 	allowed.Header.Set("Origin", "https://app.example")
 	if _, _, headers := doRequest(t, open, allowed); headers.Get("Access-Control-Allow-Origin") != "https://app.example" {
 		t.Fatalf("configured origin should be allowed, got %q", headers.Get("Access-Control-Allow-Origin"))
 	}
-	denied := httptest.NewRequest(http.MethodGet, "/api/v2/dashboard?range=Today", http.NoBody)
+	denied := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v2/dashboard?range=Today", http.NoBody)
 	denied.Header.Set("Origin", "https://evil.example")
 	if _, _, headers := doRequest(t, open, denied); headers.Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("unconfigured origin must be rejected, got %q", headers.Get("Access-Control-Allow-Origin"))
@@ -133,7 +133,7 @@ func TestDashboardPresetStatsMatchSummaries(t *testing.T) {
 	for _, preset := range []string{"Last 14 Days", "This Week", "Last 7 Days from Yesterday"} {
 		query := &recordingQuery{}
 		app := apihttp.NewApp(&config.Config{}, &apihttp.Checker{}, apihttp.Services{Auth: stubAuth{}, Heartbeats: stubHeartbeats{}, Query: query})
-		req := httptest.NewRequest(http.MethodGet, "/api/v2/dashboard?range="+strings.ReplaceAll(preset, " ", "+")+"&timezone=UTC", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v2/dashboard?range="+strings.ReplaceAll(preset, " ", "+")+"&timezone=UTC", http.NoBody)
 		if status, body, _ := doRequest(t, app, req); status != http.StatusOK {
 			t.Fatalf("%s: status=%d body=%s", preset, status, body)
 		}

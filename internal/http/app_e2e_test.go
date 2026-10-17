@@ -1,6 +1,7 @@
 package apihttp_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -28,7 +29,7 @@ func newE2EApp(t *testing.T) *testAppHandle {
 
 type testAppHandle struct{ app testApp }
 
-func (h *testAppHandle) json(t *testing.T, method, path, body string) (int, map[string]any) {
+func (h *testAppHandle) json(t *testing.T, method, path, body string) (status int, decoded map[string]any) {
 	t.Helper()
 	var reader *strings.Reader
 	if body != "" {
@@ -36,16 +37,16 @@ func (h *testAppHandle) json(t *testing.T, method, path, body string) (int, map[
 	} else {
 		reader = strings.NewReader("")
 	}
-	req := httptest.NewRequest(method, path, reader)
+	req := httptest.NewRequestWithContext(context.Background(), method, path, reader)
 	req.Header.Set("Content-Type", "application/json")
 	status, raw, _ := doRequest(t, h.app, req)
-	out := map[string]any{}
+	decoded = map[string]any{}
 	if strings.TrimSpace(raw) != "" {
-		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 			t.Fatalf("%s %s returned non-JSON %q: %v", method, path, raw, err)
 		}
 	}
-	return status, out
+	return status, decoded
 }
 
 func num(t *testing.T, values map[string]any, path ...string) float64 {
