@@ -35,7 +35,7 @@ func (s *QueryService) Resume(ctx context.Context, params domain.ResumeQueryPara
 	intervals := buildHeartbeatIntervals(filtered, settings.timeout, limitForWindow(startLocal, endLocal, settings.location))
 	totalSeconds := totalIntervalSeconds(intervals)
 
-	categoryItems, _ := collectBucketData(intervals, totalSeconds, categoryBucketValue, false)
+	categoryItems, _ := collectBucketData(intervals, totalSeconds, categoryBucketValue)
 	categories := make([]domain.ResumeCategory, 0, len(categoryItems))
 	for _, item := range categoryItems {
 		name, _ := item["name"].(string)
@@ -43,10 +43,9 @@ func (s *QueryService) Resume(ctx context.Context, params domain.ResumeQueryPara
 		categories = append(categories, domain.ResumeCategory{Name: name, Percent: percent})
 	}
 
-	editorItems, _ := collectBucketData(intervals, totalSeconds, editorBucketValue, false)
+	editorItems, _ := collectBucketData(intervals, totalSeconds, editorBucketValue)
 
-	aiModelItems, aiModelAccs := collectBucketData(intervals, totalSeconds, aiModelBucketValue, true)
-	applyModelPricing(aiModelItems, aiModelAccs, settings.pricingFn)
+	aiModelItems, _ := collectAIBucketData(intervals, totalSeconds, aiModelBucketValue, accumulateTokenTotals(heartbeats, aiModelBucketValue, settings.pricingFn))
 	applyModelDisplayNames(aiModelItems)
 	models := make([]domain.ResumeModel, 0, len(aiModelItems))
 	estCostUSD := 0.0
@@ -60,7 +59,7 @@ func (s *QueryService) Resume(ctx context.Context, params domain.ResumeQueryPara
 	}
 
 	aiAdditions, aiDeletions, humanAdditions, humanDeletions := sumLineChanges(intervals)
-	aiInputTokens, aiOutputTokens := sumAITokens(filtered)
+	aiInputTokens, aiOutputTokens := sumAITokens(heartbeats)
 
 	totalAILines := aiAdditions + aiDeletions
 	totalHumanLines := humanAdditions + humanDeletions
@@ -75,8 +74,12 @@ func (s *QueryService) Resume(ctx context.Context, params domain.ResumeQueryPara
 		linesPerMillionTokens = float64(totalAILines) / (float64(totalTokens) / 1_000_000)
 	}
 
-	agentSessions := countDistinctAISessions(filtered)
-	longestTask := longestAITask(heartbeats, settings.timeout, endLocal.UTC())
+	agentSessions := countDistinctAISessions(heartbeats)
+	taskLimit := nowLocal
+	if endLocal.Before(taskLimit) {
+		taskLimit = endLocal
+	}
+	longestTask := longestAITask(heartbeats, settings.timeout, taskLimit.UTC())
 	longestStreakDays := longestStreakFromIntervals(intervals, settings.location, startLocal, endLocal)
 	monthly := monthlyLinePercents(intervals, settings.location, startLocal, endLocal)
 
@@ -121,7 +124,9 @@ func countDistinctAISessions(heartbeats []domain.HeartbeatRecord) int {
 func longestStreakFromIntervals(intervals []heartbeatInterval, loc *time.Location, startLocal, endLocal time.Time) int {
 	activeDays := map[string]bool{}
 	for i := range intervals {
-		activeDays[intervals[i].start.In(loc).Format("2006-01-02")] = true
+		if intervals[i].seconds > 0 {
+			activeDays[intervals[i].start.In(loc).Format("2006-01-02")] = true
+		}
 	}
 
 	longest, run := 0, 0
@@ -165,6 +170,13 @@ func monthlyLinePercents(intervals []heartbeatInterval, loc *time.Location, star
 		bucket.humanLines += humanAdd + humanDel
 	}
 
+	// Month names repeat when the window spans more than 12 calendar months,
+	// so fall back to "Jan 2006" labels in that case.
+	labelLayout := "Jan"
+	if len(order) > 12 {
+		labelLayout = "Jan 2006"
+	}
+
 	out := make([]domain.ResumeMonthlyLines, 0, len(order))
 	for _, key := range order {
 		bucket := totals[key]
@@ -176,7 +188,7 @@ func monthlyLinePercents(intervals []heartbeatInterval, loc *time.Location, star
 		}
 		monthLabel, _ := time.Parse("2006-01", key)
 		out = append(out, domain.ResumeMonthlyLines{
-			Month:        monthLabel.Format("Jan"),
+			Month:        monthLabel.Format(labelLayout),
 			AIPercent:    aiPercent,
 			HumanPercent: humanPercent,
 		})

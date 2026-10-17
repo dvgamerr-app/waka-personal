@@ -12,6 +12,14 @@ import (
 	"waka-personal/internal/store"
 )
 
+// ErrInvalidInput marks request payload problems the caller can fix, so the
+// transport layer can answer 400 instead of 500.
+var ErrInvalidInput = errors.New("invalid input")
+
+func invalidInput(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrInvalidInput, fmt.Sprintf(format, args...))
+}
+
 type HeartbeatService struct {
 	store *store.Store
 }
@@ -51,36 +59,39 @@ func (s *HeartbeatService) Ingest(ctx context.Context, body []byte, machineName 
 func ParseHeartbeatBody(body []byte) ([]domain.HeartbeatPayload, error) {
 	normalized := bytesTrim(body)
 	if len(normalized) == 0 {
-		return nil, errors.New("empty body")
+		return nil, invalidInput("empty body")
 	}
 
 	for i := 0; i < 2; i++ {
 		if len(normalized) > 0 && normalized[0] == '"' {
 			var unwrapped string
 			if err := json.Unmarshal(normalized, &unwrapped); err != nil {
-				return nil, fmt.Errorf("decode nested json string: %w", err)
+				return nil, invalidInput("decode nested json string: %v", err)
 			}
 			normalized = bytesTrim([]byte(unwrapped))
 			continue
 		}
 		break
 	}
+	if len(normalized) == 0 {
+		return nil, invalidInput("empty body")
+	}
 
 	switch normalized[0] {
 	case '[':
 		var payloads []domain.HeartbeatPayload
 		if err := json.Unmarshal(normalized, &payloads); err != nil {
-			return nil, fmt.Errorf("decode heartbeat array: %w", err)
+			return nil, invalidInput("decode heartbeat array: %v", err)
 		}
 		return payloads, nil
 	case '{':
 		var payload domain.HeartbeatPayload
 		if err := json.Unmarshal(normalized, &payload); err != nil {
-			return nil, fmt.Errorf("decode heartbeat object: %w", err)
+			return nil, invalidInput("decode heartbeat object: %v", err)
 		}
 		return []domain.HeartbeatPayload{payload}, nil
 	default:
-		return nil, fmt.Errorf("unsupported heartbeat payload shape")
+		return nil, invalidInput("unsupported heartbeat payload shape")
 	}
 }
 
@@ -163,10 +174,10 @@ func NormalizeHeartbeat(payload *domain.HeartbeatPayload, machineName string, im
 
 func validateHeartbeatPayload(payload *domain.HeartbeatPayload) error {
 	if strings.TrimSpace(payload.Entity) == "" {
-		return errors.New("heartbeat entity is required")
+		return invalidInput("heartbeat entity is required")
 	}
 	if resolveHeartbeatTime(payload) <= 0 {
-		return errors.New("heartbeat time must be greater than zero")
+		return invalidInput("heartbeat time must be greater than zero")
 	}
 	return nil
 }
@@ -178,7 +189,7 @@ func parseHeartbeatCreatedAt(value string) (*time.Time, error) {
 
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return nil, fmt.Errorf("parse created_at: %w", err)
+		return nil, invalidInput("parse created_at: %v", err)
 	}
 	parsed = parsed.UTC()
 	return &parsed, nil
@@ -259,13 +270,13 @@ func parseDependencies(raw json.RawMessage) ([]string, error) {
 	case '[':
 		var items []string
 		if err := json.Unmarshal(trimmed, &items); err != nil {
-			return nil, fmt.Errorf("decode dependencies array: %w", err)
+			return nil, invalidInput("decode dependencies array: %v", err)
 		}
 		return items, nil
 	case '"':
 		var text string
 		if err := json.Unmarshal(trimmed, &text); err != nil {
-			return nil, fmt.Errorf("decode dependencies string: %w", err)
+			return nil, invalidInput("decode dependencies string: %v", err)
 		}
 		if strings.TrimSpace(text) == "" {
 			return []string{}, nil
@@ -280,7 +291,7 @@ func parseDependencies(raw json.RawMessage) ([]string, error) {
 		}
 		return out, nil
 	default:
-		return nil, fmt.Errorf("unsupported dependencies payload")
+		return nil, invalidInput("unsupported dependencies payload")
 	}
 }
 

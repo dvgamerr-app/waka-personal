@@ -36,7 +36,7 @@ Set these in `.env` next to `docker-compose.yml`.
 | `POSTGRES_PORT` | `5432`          | Host port of PostgreSQL, bound to `127.0.0.1` only.                      |
 
 The app also reads `KEYSTROKE_TIMEOUT_MINUTES` (default `15`), `WRITES_ONLY` (default `false`),
-`CORS_ALLOW_ORIGINS` (default `*`) and the `PROFILE_*` variables used by the WakaTime
+`CORS_ALLOW_ORIGINS` (default empty, so only the same-origin dashboard can read the API from a browser) and the `PROFILE_*` variables used by the WakaTime
 `/users/current` response. Add them under `environment:` in `docker-compose.yml` if you need them.
 
 ## Run
@@ -63,6 +63,19 @@ reachable outside your machine or LAN.
 
 Then use `https://YOUR_DOMAIN/api/v1` as `api_url`.
 
+## Dashboard access
+
+`APP_API_KEY` protects the WakaTime API under `/api/v1`. The dashboard and its data endpoints under
+`/api/v2` (dashboard, live, insights, wrapped, project, resume) are served **without authentication**, because the
+browser UI cannot hold a secret. Anyone who can reach the port can read your coding activity, projects and AI
+spend. The app sends no CORS headers by default, so other websites cannot read it from a browser, but that does not
+protect against direct access.
+
+- Publish the port only on a trusted network, a VPN or a tunnel such as Tailscale.
+- When it must be reachable from the internet, put it behind a reverse proxy that adds its own login (basic auth,
+  OAuth proxy or your tunnel's access policy) for everything except `/api/v1`.
+- Set `CORS_ALLOW_ORIGINS` only for origins you trust.
+
 ## Database options
 
 - **Bundled PostgreSQL (default).** Data lives in the `pgdata` volume, published on
@@ -87,7 +100,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Pending migrations run on start. Pin `IMAGE_TAG` to a release if you prefer upgrading on your
+Pending migrations run on start when `AUTO_MIGRATE=true` (the compose default); with any other deployment run `waka-migrate up` yourself, otherwise newer model prices are missing and AI spend is estimated at the default rate. Pin `IMAGE_TAG` to a release if you prefer upgrading on your
 own schedule. Take a backup first.
 
 ## Backup and restore
@@ -108,8 +121,9 @@ DATABASE_URL='postgres://postgres:REPLACE_ME@127.0.0.1:5432/waka_personal?sslmod
   CGO_ENABLED=1 go run ./cmd/importer --file /path/to/backup.json.gz
 ```
 
-Add `--dry-run` to validate the file first. On Windows, CGO needs a GCC toolchain such as MSYS2
-UCRT64. Re-importing the same file is safe: batches are deduplicated by SHA-256.
+Add `--dry-run` to validate the file first; it records a batch but does not change heartbeats or the stored profile.
+On Windows, CGO needs a GCC toolchain such as MSYS2 UCRT64. Re-importing the same file is safe: heartbeats are
+matched by their dedupe hash and refreshed in place, so no duplicates are created.
 
 ## Scheduled jobs
 

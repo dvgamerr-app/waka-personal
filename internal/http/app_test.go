@@ -75,7 +75,7 @@ func (s stubQuery) Activity(ctx context.Context, params domain.ActivityQueryPara
 	}, nil
 }
 
-func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) (records []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
+func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time, requestedTimezone string) (records []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
 	aiInputTokens := int64(1200)
 	aiOutputTokens := int64(800)
 	aiPromptLength := 64
@@ -95,7 +95,7 @@ func (s stubQuery) HeartbeatsForDate(ctx context.Context, day time.Time) (record
 	}, day.UTC(), day.Add(24 * time.Hour).UTC(), "UTC", nil
 }
 
-func (s stubQuery) DeleteHeartbeatsForDate(ctx context.Context, day time.Time, ids []string) (int64, error) {
+func (s stubQuery) DeleteHeartbeatsForDate(ctx context.Context, day time.Time, timezone string, ids []string) (int64, error) {
 	return int64(len(ids)), nil
 }
 
@@ -127,7 +127,7 @@ func (s stubQuery) Stats(ctx context.Context, params domain.StatsQueryParams) (m
 	}, nil
 }
 
-func (s stubQuery) StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error) {
+func (s stubQuery) StatusbarToday(ctx context.Context, now time.Time, timezone string) (map[string]any, error) {
 	return map[string]any{
 		"grand_total": map[string]any{
 			"text":          "1h 02m",

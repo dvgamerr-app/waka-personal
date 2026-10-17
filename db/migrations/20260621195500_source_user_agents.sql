@@ -104,7 +104,9 @@ FROM heartbeats
 WHERE (source_user_agent_id IS NULL OR source_user_agent_id = '')
   AND plugin IS NOT NULL
   AND plugin <> ''
-ON CONFLICT (id) DO NOTHING;
+-- A plugin string adopted above already owns its unique user_agent row; skip it
+-- instead of failing on idx_source_user_agents_user_agent.
+ON CONFLICT DO NOTHING;
 
 UPDATE heartbeats AS heartbeats
 SET source_user_agent_id = agents.id

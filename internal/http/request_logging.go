@@ -78,6 +78,9 @@ func statusCodeForError(err error) int {
 	if errors.Is(err, service.ErrUnauthorized) {
 		status = fiber.StatusUnauthorized
 	}
+	if errors.Is(err, service.ErrInvalidInput) {
+		status = fiber.StatusBadRequest
+	}
 
 	return status
 }
