@@ -18,7 +18,9 @@ export const readRuntimeConfig = () => {
 
 export const buildApiUrl = (base, path, params = {}) => {
   const root = base || window.location.origin
-  const url = new URL(path, root)
+  // Resolve against the base with a trailing slash so a path prefix such as
+  // https://host/waka survives instead of being replaced by the absolute path.
+  const url = new URL(path.replace(/^\/+/, ''), root.endsWith('/') ? root : `${root}/`)
   for (const [key, value] of Object.entries(params)) {
     if (value != null && value !== '') {
       url.searchParams.set(key, String(value))

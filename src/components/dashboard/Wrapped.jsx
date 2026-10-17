@@ -24,8 +24,8 @@ const SectionTitle = ({ children }) => (
 
 const formatTokens = (n) => {
   const num = Number(n) || 0
-  if (num >= 1e9) return `${(num / 1e9).toFixed(1)}B`
-  if (num >= 1e6) return `${(num / 1e6).toFixed(1)}M`
+  if (num >= 999_950_000) return `${(num / 1e9).toFixed(1)}B`
+  if (num >= 999_950) return `${(num / 1e6).toFixed(1)}M`
   if (num >= 1e3) return `${(num / 1e3).toFixed(1)}K`
   return num > 0 ? String(num) : '—'
 }
@@ -86,16 +86,16 @@ const loadWrapped = async ({ base, timezone, year }) => {
   }
 }
 
-function WrappedContent({ config = {}, year }) {
+function WrappedContent({ config = {} }) {
   const runtimeConfig = readRuntimeConfig()
   const effectiveConfig = { ...config, ...runtimeConfig }
   const fallbackTimezone = effectiveConfig.timezone || detectTimezone()
   const currentYear = new Date().getFullYear()
 
   const getYearFromUrl = () => {
-    if (typeof window === 'undefined') return Number(year) || currentYear
+    if (typeof window === 'undefined') return currentYear
     const param = new URLSearchParams(window.location.search).get('year')
-    return Number(param) || Number(year) || currentYear
+    return Number(param) || currentYear
   }
 
   const [selectedYear, setSelectedYear] = useState(getYearFromUrl)
@@ -111,6 +111,17 @@ function WrappedContent({ config = {}, year }) {
     errors: [],
   })
   const [loading, setLoading] = useState(true)
+  const [copied, setCopied] = useState(false)
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch (_) {
+      setCopied(false)
+    }
+  }
 
   useEffect(() => {
     const handler = (e) => setSelectedYear(e.detail)
@@ -140,7 +151,7 @@ function WrappedContent({ config = {}, year }) {
           selectedYear < currentYear
             ? `${selectedYear}-12-31 23:59:59`
             : new Date().toISOString().slice(0, 19).replace('T', ' ')
-        metaEl.innerHTML = `<div>Compiled: ${compiledDate}</div><div class="text-zinc-500">Data points: <span class="text-sky-300">${next.totalDays.toLocaleString()}</span></div>`
+        metaEl.innerHTML = `<div>Compiled: ${compiledDate}</div><div class="text-zinc-500">Days compiled: <span class="text-sky-300">${next.totalDays.toLocaleString()}</span></div>`
       }
     })
     return () => {
@@ -152,6 +163,8 @@ function WrappedContent({ config = {}, year }) {
   const rangeStats = useMemo(() => computeRangeStats(summaries), [summaries])
   const projects = useMemo(() => topItems(rangeStats?.projects, 6), [rangeStats])
   const languages = useMemo(() => topItems(rangeStats?.languages, 8), [rangeStats])
+  const projectCount = rangeStats?.projects?.length || 0
+  const languageCount = rangeStats?.languages?.length || 0
 
   const months = useMemo(() => {
     const buckets = new Map()
@@ -187,6 +200,7 @@ function WrappedContent({ config = {}, year }) {
   const totalHours = Math.round((rangeStats?.totalSeconds || 0) / 3600)
   const linesPerDay = rangeStats?.activeDays > 0 ? Math.round(aiTotal / rangeStats.activeDays) : 0
   const machineCount = rangeStats?.machines?.length || 0
+  const yearPhrase = selectedYear === currentYear ? 'this year' : `in ${selectedYear}`
 
   const activity = data.activity || {}
   const tokenUsage = activity.token_usage || {}
@@ -213,8 +227,9 @@ function WrappedContent({ config = {}, year }) {
   const langBar = useMemo(() => {
     const top = languages.slice(0, 5)
     const usedPct = top.reduce((sum, l) => sum + l.percent, 0)
-    const other = 100 - usedPct
-    return [...top, ...(other > 0.5 ? [{ name: 'Other', percent: other }] : [])]
+    const named = top.filter((l) => l.name !== 'Other')
+    const other = 100 - named.reduce((sum, l) => sum + l.percent, 0)
+    return [...named, ...(other > 0.5 && usedPct > 0 ? [{ name: 'Other', percent: other }] : [])]
   }, [languages])
 
   // AI model leaderboard from rangeStats
@@ -305,9 +320,9 @@ function WrappedContent({ config = {}, year }) {
         date: longestStreak.start ? fmtDate(longestStreak.start) : '—',
       },
       {
-        label: `Polyglot · ${languages.length} langs`,
-        unlocked: languages.length >= 3,
-        date: languages.length >= 3 ? '✓' : '—',
+        label: `Polyglot · ${languageCount} langs`,
+        unlocked: languageCount >= 3,
+        date: languageCount >= 3 ? '✓' : '—',
       },
       {
         label: `Token Tycoon · ${formatTokens(totalTokens)}`,
@@ -325,7 +340,7 @@ function WrappedContent({ config = {}, year }) {
         date: '—',
       },
     ],
-    [aiTotal, longestStreak, languages, totalTokens, totalHours, activity]
+    [aiTotal, longestStreak, languageCount, totalTokens, totalHours, activity]
   )
 
   return (
@@ -342,13 +357,13 @@ function WrappedContent({ config = {}, year }) {
           <h2 className="mb-2 text-4xl font-medium tracking-tight text-zinc-100 md:text-5xl">
             {aiTotal > 0 ? (
               <>
-                You shipped <span className="text-sky-300">{formatCount(aiTotal)}</span> lines this
-                year.
+                You shipped <span className="text-sky-300">{formatCount(aiTotal)}</span> lines{' '}
+                {yearPhrase}.
               </>
             ) : (
               <>
-                You coded <span className="text-sky-300">{totalHours.toLocaleString()}h</span> this
-                year.
+                You coded <span className="text-sky-300">{totalHours.toLocaleString()}h</span>{' '}
+                {yearPhrase}.
               </>
             )}
           </h2>
@@ -357,11 +372,11 @@ function WrappedContent({ config = {}, year }) {
               <>
                 That's roughly{' '}
                 <span className="text-zinc-200">{linesPerDay.toLocaleString()} lines per day</span>,
-                sustained across <span className="text-zinc-200">{projects.length} projects</span>
+                sustained across <span className="text-zinc-200">{projectCount} projects</span>
                 {machineCount > 0 && (
                   <>
                     {' '}
-                    and <span className="text-zinc-200">{machineCount} agent stations</span>
+                    and <span className="text-zinc-200">{machineCount} machines</span>
                   </>
                 )}
                 .
@@ -377,7 +392,7 @@ function WrappedContent({ config = {}, year }) {
               <>
                 Across{' '}
                 <span className="text-zinc-200">{rangeStats?.activeDays || 0} active days</span> and{' '}
-                <span className="text-zinc-200">{projects.length} projects</span>
+                <span className="text-zinc-200">{projectCount} projects</span>
                 {machineCount > 0 && (
                   <>
                     {' '}
@@ -422,7 +437,7 @@ function WrappedContent({ config = {}, year }) {
               'TOKENS_BURNED',
               formatTokens(totalTokens),
               totalTokens > 0
-                ? `${machineCount > 0 ? `across ${machineCount} agent stations` : 'total tokens'}`
+                ? `${machineCount > 0 ? `across ${machineCount} machines` : 'total tokens'}`
                 : 'not tracked in heartbeats',
             ],
             [
@@ -583,15 +598,10 @@ function WrappedContent({ config = {}, year }) {
                 <div className="flex justify-center gap-2">
                   <button
                     type="button"
+                    onClick={copyLink}
                     className="bg-sky-300/10 px-3 py-1.5 text-[10px] tracking-widest text-sky-300 uppercase ring-1 ring-sky-300 transition-colors hover:bg-sky-300/20"
                   >
-                    Export PNG
-                  </button>
-                  <button
-                    type="button"
-                    className="px-3 py-1.5 text-[10px] tracking-widest text-zinc-400 uppercase ring-1 ring-zinc-800 transition-colors hover:ring-zinc-700"
-                  >
-                    Copy Link
+                    {copied ? 'Copied' : 'Copy Link'}
                   </button>
                 </div>
               </div>

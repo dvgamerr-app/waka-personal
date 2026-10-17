@@ -15,7 +15,12 @@ const { title = 'Waka Personal Dashboard' } = Astro.props
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
     <script is:inline>
-      const theme = localStorage.getItem('theme')
+      let theme = null
+      try {
+        theme = localStorage.getItem('theme')
+      } catch (_) {
+        theme = null
+      }
       const isDark =
         theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)
       if (isDark) document.documentElement.classList.add('dark')
