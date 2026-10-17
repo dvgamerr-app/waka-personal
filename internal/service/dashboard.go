@@ -3,10 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"waka-personal/internal/domain"
 )
@@ -48,8 +51,15 @@ type bucketAccumulator struct {
 	aiDeletions    int
 	humanAdditions int
 	humanDeletions int
-	inputTokens    int64
-	outputTokens   int64
+}
+
+// tokenTotals holds AI token usage and its estimated cost for one bucket.
+// Tokens are attributed from every heartbeat, independent of writes_only and
+// of whether the heartbeat produced a non-empty time interval.
+type tokenTotals struct {
+	inputTokens  int64
+	outputTokens int64
+	spendCents   float64
 }
 
 type rangeWindow struct {
@@ -69,7 +79,7 @@ func (s *QueryService) Durations(ctx context.Context, params domain.DurationQuer
 	if err != nil {
 		return nil, time.Time{}, time.Time{}, "", err
 	}
-	dayEndLocal := dayStartLocal.Add(24 * time.Hour)
+	dayEndLocal := dayStartLocal.AddDate(0, 0, 1)
 
 	heartbeats, err := s.store.ListHeartbeatsByRange(ctx, dayStartLocal.UTC(), dayEndLocal.UTC())
 	if err != nil {
@@ -106,12 +116,14 @@ func (s *QueryService) Summaries(ctx context.Context, params domain.SummaryQuery
 
 	filtered := filterHeartbeatsForProjectBranches(filterHeartbeats(heartbeats, settings.writesOnly), params.Project, params.Branches)
 	buckets := bucketHeartbeatsByLocalDate(filtered, settings.location)
+	tokenBuckets := bucketHeartbeatsByLocalDate(filterHeartbeatsForProjectBranches(heartbeats, params.Project, params.Branches), settings.location)
 
 	items := make([]map[string]any, 0)
 	nowLocal := time.Now().In(settings.location)
-	for day := window.startLocal; day.Before(window.endLocal); day = day.Add(24 * time.Hour) {
+	for day := window.startLocal; day.Before(window.endLocal); day = day.AddDate(0, 0, 1) {
 		items = append(items, buildDailySummaryMap(
 			buckets[day.Format("2006-01-02")],
+			tokenBuckets[day.Format("2006-01-02")],
 			day,
 			nowLocal,
 			settings,
@@ -145,15 +157,14 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	days := buildDayTotals(intervals, settings.location)
 	bestDayDate, bestDaySeconds := bestDay(days)
 
-	categories, _ := collectBucketData(intervals, totalSecondsIncludingOther, categoryBucketValue, false)
-	projects, _ := collectBucketData(intervals, totalSecondsIncludingOther, projectBucketValue, false)
-	languages, _ := collectBucketData(intervals, totalSecondsIncludingOther, languageBucketValue, false)
-	editors, _ := collectBucketData(intervals, totalSecondsIncludingOther, editorBucketValue, false)
-	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue, false)
-	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue, false)
+	categories, _ := collectBucketData(intervals, totalSecondsIncludingOther, categoryBucketValue)
+	projects, _ := collectBucketData(intervals, totalSecondsIncludingOther, projectBucketValue)
+	languages, _ := collectBucketData(intervals, totalSecondsIncludingOther, languageBucketValue)
+	editors, _ := collectBucketData(intervals, totalSecondsIncludingOther, editorBucketValue)
+	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue)
+	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue)
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
-	aiModels, aiModelAccs := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
-	applyModelPricing(aiModels, aiModelAccs, settings.pricingFn)
+	aiModels, _ := collectAIBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, accumulateTokenTotals(heartbeats, aiModelBucketValue, settings.pricingFn))
 	applyModelDisplayNames(aiModels)
 
 	dayCount := daySpan(window.startLocal, window.endLocal)
@@ -166,7 +177,7 @@ func (s *QueryService) Stats(ctx context.Context, params domain.StatsQueryParams
 	}
 
 	aiAdditions, aiDeletions, humanAdditions, humanDeletions := sumLineChanges(intervals)
-	aiInputTokens, aiOutputTokens := sumAITokens(filtered)
+	aiInputTokens, aiOutputTokens := sumAITokens(heartbeats)
 	nowUTC := time.Now().UTC().Format(time.RFC3339)
 
 	return map[string]any{
@@ -258,7 +269,10 @@ func (s *QueryService) resolveQuerySettings(ctx context.Context, timezone string
 		effectiveWritesOnly = *writesOnly
 	}
 
-	pricing, _ := s.store.ListModelPricing(ctx)
+	pricing, err := s.store.ListModelPricing(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("load model pricing; falling back to default rates")
+	}
 	if pricing == nil {
 		pricing = map[string]domain.ModelPricing{}
 	}
@@ -298,7 +312,7 @@ func (s *QueryService) parseStatsWindow(ctx context.Context, value, start, end s
 			name:       fmt.Sprintf("%s..%s", start, end),
 			humanName:  fmt.Sprintf("%s to %s", startLocal.Format("Jan 2, 2006"), endLocal.Format("Jan 2, 2006")),
 			startLocal: startLocal,
-			endLocal:   endLocal.Add(24 * time.Hour),
+			endLocal:   endLocal.AddDate(0, 0, 1),
 		}, nil
 	}
 
@@ -308,7 +322,7 @@ func (s *QueryService) parseStatsWindow(ctx context.Context, value, start, end s
 	}
 
 	today := startOfDay(now)
-	tomorrow := today.Add(24 * time.Hour)
+	tomorrow := today.AddDate(0, 0, 1)
 
 	switch rangeName {
 	case "today":
@@ -327,7 +341,7 @@ func (s *QueryService) parseStatsWindow(ctx context.Context, value, start, end s
 		return rangeWindow{name: "last_6_months", humanName: "Last 6 Months", startLocal: today.AddDate(0, -6, 1), endLocal: tomorrow}, nil
 	case "last_year":
 		lastYearStart := time.Date(today.Year()-1, time.January, 1, 0, 0, 0, 0, loc)
-		lastYearEnd := time.Date(today.Year()-1, time.December, 31, 0, 0, 0, 0, loc).Add(24 * time.Hour)
+		lastYearEnd := time.Date(today.Year()-1, time.December, 31, 0, 0, 0, 0, loc).AddDate(0, 0, 1)
 		return rangeWindow{name: "last_year", humanName: "Last Year", startLocal: lastYearStart, endLocal: lastYearEnd}, nil
 	case "all_time":
 		start, _, err := s.store.GetHeartbeatBounds(ctx)
@@ -355,13 +369,16 @@ func (s *QueryService) parseStatsWindow(ctx context.Context, value, start, end s
 			}
 			return rangeWindow{name: rangeName, humanName: parsed.Format("2006"), startLocal: parsed, endLocal: endLocal}, nil
 		}
+		if window, err := parseSummaryWindow(domain.SummaryQueryParams{Range: value}, now, loc); err == nil {
+			return window, nil
+		}
 		return rangeWindow{}, fmt.Errorf("unsupported stats range %q", value)
 	}
 }
 
 func parseSummaryWindow(params domain.SummaryQueryParams, now time.Time, loc *time.Location) (rangeWindow, error) {
 	today := startOfDay(now)
-	tomorrow := today.Add(24 * time.Hour)
+	tomorrow := today.AddDate(0, 0, 1)
 
 	switch strings.TrimSpace(strings.ToLower(params.Range)) {
 	case "":
@@ -394,7 +411,7 @@ func parseSummaryWindow(params domain.SummaryQueryParams, now time.Time, loc *ti
 		return rangeWindow{name: "Last Month", humanName: "Last Month", startLocal: start, endLocal: end}, nil
 	case "last year":
 		lastYearStart := time.Date(today.Year()-1, time.January, 1, 0, 0, 0, 0, loc)
-		lastYearEnd := time.Date(today.Year()-1, time.December, 31, 0, 0, 0, 0, loc).Add(24 * time.Hour)
+		lastYearEnd := time.Date(today.Year()-1, time.December, 31, 0, 0, 0, 0, loc).AddDate(0, 0, 1)
 		return rangeWindow{name: "Last Year", humanName: "Last Year", startLocal: lastYearStart, endLocal: lastYearEnd}, nil
 	}
 
@@ -431,27 +448,29 @@ func parseSummaryWindow(params domain.SummaryQueryParams, now time.Time, loc *ti
 		name:       fmt.Sprintf("%s..%s", params.Start, params.End),
 		humanName:  fmt.Sprintf("%s to %s", startLocal.Format("Jan 2, 2006"), endLocal.Format("Jan 2, 2006")),
 		startLocal: startLocal,
-		endLocal:   endLocal.Add(24 * time.Hour),
+		endLocal:   endLocal.AddDate(0, 0, 1),
 	}, nil
 }
 
-func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, nowLocal time.Time, settings querySettings, includeProjectDetails bool) map[string]any {
-	dayEndLocal := dayStartLocal.Add(24 * time.Hour)
+// buildDailySummaryMap summarizes one local day. heartbeats drives time and line
+// metrics (writes_only applies); tokenHeartbeats drives AI token, spend and
+// session metrics and is not narrowed by writes_only.
+func buildDailySummaryMap(heartbeats, tokenHeartbeats []domain.HeartbeatRecord, dayStartLocal, nowLocal time.Time, settings querySettings, includeProjectDetails bool) map[string]any {
+	dayEndLocal := dayStartLocal.AddDate(0, 0, 1)
 	intervals := buildHeartbeatIntervals(heartbeats, settings.timeout, limitForDay(dayStartLocal, nowLocal).UTC())
 	totalSecondsIncludingOther := totalIntervalSeconds(intervals)
 	aiAdditions, aiDeletions, humanAdditions, humanDeletions := sumLineChanges(intervals)
-	aiInputTokens, aiOutputTokens := sumAITokens(heartbeats)
-	aiPromptCount, aiPromptChars, aiSessionCount := aiPromptSessionMetrics(heartbeats)
+	aiInputTokens, aiOutputTokens := sumAITokens(tokenHeartbeats)
+	aiPromptCount, aiPromptChars, aiSessionCount := aiPromptSessionMetrics(tokenHeartbeats)
 
-	categories, _ := collectBucketData(intervals, totalSecondsIncludingOther, categoryBucketValue, false)
-	projects, _ := collectBucketData(intervals, totalSecondsIncludingOther, projectBucketValue, true)
-	languages, _ := collectBucketData(intervals, totalSecondsIncludingOther, languageBucketValue, false)
-	editors, _ := collectBucketData(intervals, totalSecondsIncludingOther, editorBucketValue, false)
-	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue, false)
-	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue, false)
+	categories, _ := collectBucketData(intervals, totalSecondsIncludingOther, categoryBucketValue)
+	projects, _ := collectAIBucketData(intervals, totalSecondsIncludingOther, projectBucketValue, accumulateTokenTotals(tokenHeartbeats, projectBucketValue, settings.pricingFn))
+	languages, _ := collectBucketData(intervals, totalSecondsIncludingOther, languageBucketValue)
+	editors, _ := collectBucketData(intervals, totalSecondsIncludingOther, editorBucketValue)
+	operatingSystems, _ := collectBucketData(intervals, totalSecondsIncludingOther, operatingSystemBucketValue)
+	dependencies, _ := collectBucketData(intervals, totalSecondsIncludingOther, dependencyBucketValue)
 	machines, _ := collectMachineBucketData(intervals, totalSecondsIncludingOther)
-	aiModels, aiModelAccs := collectBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, true)
-	applyModelPricing(aiModels, aiModelAccs, settings.pricingFn)
+	aiModels, _ := collectAIBucketData(intervals, totalSecondsIncludingOther, aiModelBucketValue, accumulateTokenTotals(tokenHeartbeats, aiModelBucketValue, settings.pricingFn))
 	applyModelDisplayNames(aiModels)
 
 	summary := map[string]any{
@@ -485,8 +504,8 @@ func buildDailySummaryMap(heartbeats []domain.HeartbeatRecord, dayStartLocal, no
 	}
 
 	if includeProjectDetails {
-		branches, _ := collectBucketData(intervals, totalSecondsIncludingOther, branchBucketValue, false)
-		entities, _ := collectBucketData(intervals, totalSecondsIncludingOther, entityBucketValue, true)
+		branches, _ := collectBucketData(intervals, totalSecondsIncludingOther, branchBucketValue)
+		entities, _ := collectAIBucketData(intervals, totalSecondsIncludingOther, entityBucketValue, accumulateTokenTotals(tokenHeartbeats, entityBucketValue, settings.pricingFn))
 		summary["branches"] = branches
 		summary["entities"] = entities
 	}
@@ -499,7 +518,8 @@ func buildHeartbeatIntervals(heartbeats []domain.HeartbeatRecord, timeout time.D
 		return []heartbeatInterval{}
 	}
 
-	sort.Slice(heartbeats, func(i, j int) bool {
+	heartbeats = append([]domain.HeartbeatRecord(nil), heartbeats...)
+	sort.SliceStable(heartbeats, func(i, j int) bool {
 		return heartbeats[i].Time.Before(heartbeats[j].Time)
 	})
 
@@ -513,8 +533,10 @@ func buildHeartbeatIntervals(heartbeats []domain.HeartbeatRecord, timeout time.D
 		if end.After(limit) {
 			end = limit
 		}
-		if !end.After(record.Time) {
-			continue
+		if end.Before(record.Time) {
+			// Heartbeats at or after the limit keep a zero-length interval so
+			// their token and line telemetry is still attributed.
+			end = record.Time
 		}
 
 		intervals = append(intervals, heartbeatInterval{
@@ -533,6 +555,9 @@ func buildDurationSegments(intervals []heartbeatInterval, sliceBy string) []dura
 
 	for i := range intervals {
 		interval := intervals[i]
+		if interval.seconds <= 0 {
+			continue
+		}
 		key, label, machineNameID := sliceKeyForInterval(interval.record, sliceBy)
 		aiAdditions, aiDeletions := splitLineChanges(interval.record.AILineChanges)
 		humanAdditions, humanDeletions := splitLineChanges(interval.record.HumanLineChanges)
@@ -601,10 +626,24 @@ func bucketHeartbeatsByLocalDate(heartbeats []domain.HeartbeatRecord, loc *time.
 	return out
 }
 
-func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labeler func(domain.HeartbeatRecord) (string, bool), includeLineChanges bool) ([]map[string]any, map[string]*bucketAccumulator) {
+func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labeler func(domain.HeartbeatRecord) (string, bool)) ([]map[string]any, map[string]*bucketAccumulator) {
+	return collectBuckets(intervals, totalSeconds, labeler, false, nil)
+}
+
+// collectAIBucketData additionally reports line changes plus token usage and
+// estimated spend per bucket. Tokens come from pre-computed totals so that
+// heartbeats without a time interval are still counted.
+func collectAIBucketData(intervals []heartbeatInterval, totalSeconds float64, labeler func(domain.HeartbeatRecord) (string, bool), tokens map[string]*tokenTotals) ([]map[string]any, map[string]*bucketAccumulator) {
+	return collectBuckets(intervals, totalSeconds, labeler, true, tokens)
+}
+
+func collectBuckets(intervals []heartbeatInterval, totalSeconds float64, labeler func(domain.HeartbeatRecord) (string, bool), includeAI bool, tokens map[string]*tokenTotals) ([]map[string]any, map[string]*bucketAccumulator) {
 	accumulators := map[string]*bucketAccumulator{}
 	for i := range intervals {
 		record := intervals[i].record
+		if intervals[i].seconds <= 0 && !(includeAI && hasLineChanges(&record)) {
+			continue
+		}
 		name, ok := labeler(record)
 		if !ok {
 			continue
@@ -617,19 +656,18 @@ func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labe
 		}
 
 		bucket.seconds += intervals[i].seconds
-		if record.AIInputTokens != nil {
-			bucket.inputTokens += *record.AIInputTokens
-		}
-		if record.AIOutputTokens != nil {
-			bucket.outputTokens += *record.AIOutputTokens
-		}
-		if includeLineChanges {
+		if includeAI {
 			aiAdditions, aiDeletions := splitLineChanges(record.AILineChanges)
 			humanAdditions, humanDeletions := splitLineChanges(record.HumanLineChanges)
 			bucket.aiAdditions += aiAdditions
 			bucket.aiDeletions += aiDeletions
 			bucket.humanAdditions += humanAdditions
 			bucket.humanDeletions += humanDeletions
+		}
+	}
+	for name := range tokens {
+		if accumulators[name] == nil {
+			accumulators[name] = &bucketAccumulator{}
 		}
 	}
 
@@ -642,15 +680,22 @@ func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labe
 			"total_seconds": acc.seconds,
 			"percent":       percentOf(acc.seconds, totalSeconds),
 		})
-		if includeLineChanges {
+		if includeAI {
 			item["ai_additions"] = acc.aiAdditions
 			item["ai_deletions"] = acc.aiDeletions
 			item["human_additions"] = acc.humanAdditions
 			item["human_deletions"] = acc.humanDeletions
-			totalTokens := acc.inputTokens + acc.outputTokens
-			spendCents := int64(float64(acc.inputTokens)*0.003/1000*100) + int64(float64(acc.outputTokens)*0.015/1000*100)
-			item["token_count"] = totalTokens
-			item["spend_cents"] = spendCents
+			var inputTokens, outputTokens int64
+			var spendCents float64
+			if total := tokens[key]; total != nil {
+				inputTokens, outputTokens, spendCents = total.inputTokens, total.outputTokens, total.spendCents
+			}
+			item["input_tokens"] = inputTokens
+			item["output_tokens"] = outputTokens
+			item["token_count"] = inputTokens + outputTokens
+			item["spend_cents"] = int64(math.Round(spendCents))
+			// Unrounded value so callers can add up many buckets and round once.
+			item["spend_cents_exact"] = spendCents
 		}
 		items = append(items, item)
 	}
@@ -658,21 +703,56 @@ func collectBucketData(intervals []heartbeatInterval, totalSeconds float64, labe
 	return items, accumulators
 }
 
-func applyModelPricing(items []map[string]any, accs map[string]*bucketAccumulator, pricingFn func(string) (float64, float64)) {
-	if pricingFn == nil {
-		return
+func hasLineChanges(record *domain.HeartbeatRecord) bool {
+	return (record.AILineChanges != nil && *record.AILineChanges != 0) ||
+		(record.HumanLineChanges != nil && *record.HumanLineChanges != 0)
+}
+
+func heartbeatTokens(record *domain.HeartbeatRecord) (inputTokens, outputTokens int64) {
+	if record.AIInputTokens != nil {
+		inputTokens = *record.AIInputTokens
 	}
-	for i := range items {
-		key, _ := items[i]["name"].(string)
-		acc, ok := accs[key]
+	if record.AIOutputTokens != nil {
+		outputTokens = *record.AIOutputTokens
+	}
+	return inputTokens, outputTokens
+}
+
+// accumulateTokenTotals attributes the AI tokens of every heartbeat to the
+// bucket chosen by labeler and prices them per model. It deliberately ignores
+// writes_only and interval length so token, spend and model totals share one
+// basis.
+func accumulateTokenTotals(heartbeats []domain.HeartbeatRecord, labeler func(domain.HeartbeatRecord) (string, bool), pricingFn func(string) (float64, float64)) map[string]*tokenTotals {
+	totals := map[string]*tokenTotals{}
+	for i := range heartbeats {
+		record := &heartbeats[i]
+		inputTokens, outputTokens := heartbeatTokens(record)
+		if inputTokens == 0 && outputTokens == 0 {
+			continue
+		}
+		name, ok := labeler(*record)
 		if !ok {
 			continue
 		}
-		inRate, outRate := pricingFn(key)
-		items[i]["input_tokens"] = acc.inputTokens
-		items[i]["output_tokens"] = acc.outputTokens
-		items[i]["spend_cents"] = int64(float64(acc.inputTokens)*inRate/1_000_000*100) + int64(float64(acc.outputTokens)*outRate/1_000_000*100)
+		total := totals[name]
+		if total == nil {
+			total = &tokenTotals{}
+			totals[name] = total
+		}
+		total.inputTokens += inputTokens
+		total.outputTokens += outputTokens
+		total.spendCents += estimateSpendCents(record, inputTokens, outputTokens, pricingFn)
 	}
+	return totals
+}
+
+func estimateSpendCents(record *domain.HeartbeatRecord, inputTokens, outputTokens int64, pricingFn func(string) (float64, float64)) float64 {
+	if pricingFn == nil {
+		return 0
+	}
+	model, _ := aiModelBucketValue(*record)
+	inputRate, outputRate := pricingFn(model)
+	return (float64(inputTokens)*inputRate + float64(outputTokens)*outputRate) / 1_000_000 * 100
 }
 
 func collectMachineBucketData(intervals []heartbeatInterval, totalSeconds float64) ([]map[string]any, map[string]*bucketAccumulator) {
@@ -765,7 +845,7 @@ func daySpan(start, end time.Time) int {
 	if !end.After(start) {
 		return 0
 	}
-	return int(end.Sub(start).Hours() / 24)
+	return int(math.Round(end.Sub(start).Hours() / 24))
 }
 
 func sumLineChanges(intervals []heartbeatInterval) (int, int, int, int) {
@@ -1127,15 +1207,21 @@ func applyModelDisplayNames(items []map[string]any) {
 	}
 }
 
+// unknownAIModel buckets heartbeats that carry AI tokens but no recognizable
+// agent or model, so their usage is still reported and priced at the default rate.
+const unknownAIModel = "Unknown"
+
 func aiModelBucketValue(record domain.HeartbeatRecord) (string, bool) {
 	if key, ok := inferSpecificAIModel(record); ok {
 		return key, true
 	}
-	model := inferAIModel(record)
-	if model == "" {
-		return "", false
+	if model := inferAIModel(record); model != "" {
+		return model, true
 	}
-	return model, true
+	if inputTokens, outputTokens := heartbeatTokens(&record); inputTokens > 0 || outputTokens > 0 {
+		return unknownAIModel, true
+	}
+	return "", false
 }
 
 func inferEditor(record domain.HeartbeatRecord) string {
@@ -1262,7 +1348,7 @@ func beginningOfWeek(today time.Time) time.Time {
 func limitForWindow(startLocal, endLocal time.Time, loc *time.Location) time.Time {
 	nowLocal := time.Now().In(loc)
 	dayStart := startOfDay(nowLocal)
-	if !startLocal.Before(dayStart) && startLocal.Before(dayStart.Add(24*time.Hour)) && nowLocal.Before(endLocal) {
+	if !startLocal.Before(dayStart) && startLocal.Before(dayStart.AddDate(0, 0, 1)) && nowLocal.Before(endLocal) {
 		return nowLocal.UTC()
 	}
 	if endLocal.After(nowLocal) && startLocal.Before(nowLocal) {
@@ -1272,7 +1358,7 @@ func limitForWindow(startLocal, endLocal time.Time, loc *time.Location) time.Tim
 }
 
 func limitForDay(dayStartLocal, nowLocal time.Time) time.Time {
-	dayEndLocal := dayStartLocal.Add(24 * time.Hour)
+	dayEndLocal := dayStartLocal.AddDate(0, 0, 1)
 	if nowLocal.Before(dayStartLocal) {
 		return dayStartLocal
 	}

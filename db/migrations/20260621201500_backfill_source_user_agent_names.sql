@@ -151,6 +151,13 @@ FROM (
       AND source_user_agent_id <> ''
     ORDER BY source_user_agent_id, CASE WHEN plugin IS NULL OR plugin = '' THEN 1 ELSE 0 END, time DESC
 ) AS exported
+WHERE exported.user_agent IS NULL
+   OR NOT EXISTS (
+    SELECT 1
+    FROM source_user_agents AS other
+    WHERE other.user_agent = exported.user_agent
+      AND other.id <> exported.id
+  )
 ON CONFLICT (id) DO UPDATE
 SET user_agent = COALESCE(EXCLUDED.user_agent, source_user_agents.user_agent),
     ai_agent_key = COALESCE(EXCLUDED.ai_agent_key, source_user_agents.ai_agent_key),

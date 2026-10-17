@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -21,7 +22,7 @@ func (s *AuthService) Validate(queryAPIKey, authorization string) error {
 		return nil
 	}
 
-	if queryAPIKey != "" && queryAPIKey == s.expectedAPIKey {
+	if queryAPIKey != "" && s.matches(queryAPIKey) {
 		return nil
 	}
 
@@ -41,14 +42,17 @@ func (s *AuthService) Validate(queryAPIKey, authorization string) error {
 
 	credentials := string(decoded)
 	userPass := strings.SplitN(credentials, ":", 2)
-	if len(userPass) == 0 {
-		return ErrUnauthorized
-	}
-	if userPass[0] == s.expectedAPIKey {
+	if s.matches(userPass[0]) {
 		return nil
 	}
-	if len(userPass) == 2 && userPass[1] == s.expectedAPIKey {
+	if len(userPass) == 2 && s.matches(userPass[1]) {
 		return nil
 	}
 	return ErrUnauthorized
+}
+
+// matches compares a presented key with the configured one without leaking
+// where the first mismatch occurs.
+func (s *AuthService) matches(candidate string) bool {
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(s.expectedAPIKey)) == 1
 }

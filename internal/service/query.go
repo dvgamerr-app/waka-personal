@@ -22,15 +22,28 @@ func NewQueryService(dataStore *store.Store, profile *ProfileService) *QueryServ
 	return &QueryService{store: dataStore, profile: profile}
 }
 
-func (s *QueryService) HeartbeatsForDate(ctx context.Context, day time.Time) (heartbeats []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
-	profile, err := s.profile.EffectiveSnapshot(ctx)
+// resolveLocation returns the requested timezone, or the profile timezone when
+// none is requested.
+func (s *QueryService) resolveLocation(ctx context.Context, requested string) (*time.Location, error) {
+	name := strings.TrimSpace(requested)
+	if name == "" {
+		profile, err := s.profile.EffectiveSnapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		name = storeDefault(profile.Timezone, "UTC")
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("load timezone %q: %w", name, err)
+	}
+	return loc, nil
+}
+
+func (s *QueryService) HeartbeatsForDate(ctx context.Context, day time.Time, requestedTimezone string) (heartbeats []domain.HeartbeatRecord, start, end time.Time, timezone string, err error) {
+	loc, err := s.resolveLocation(ctx, requestedTimezone)
 	if err != nil {
 		return nil, time.Time{}, time.Time{}, "", err
-	}
-
-	loc, err := time.LoadLocation(storeDefault(profile.Timezone, "UTC"))
-	if err != nil {
-		return nil, time.Time{}, time.Time{}, "", fmt.Errorf("load timezone %q: %w", profile.Timezone, err)
 	}
 
 	start, end = dayRangeInLocation(day, loc)
@@ -41,29 +54,26 @@ func (s *QueryService) HeartbeatsForDate(ctx context.Context, day time.Time) (he
 	return heartbeats, start.UTC(), end.UTC(), loc.String(), nil
 }
 
-func (s *QueryService) DeleteHeartbeatsForDate(ctx context.Context, day time.Time, ids []string) (int64, error) {
-	profile, err := s.profile.EffectiveSnapshot(ctx)
+func (s *QueryService) DeleteHeartbeatsForDate(ctx context.Context, day time.Time, requestedTimezone string, ids []string) (int64, error) {
+	loc, err := s.resolveLocation(ctx, requestedTimezone)
 	if err != nil {
 		return 0, err
-	}
-
-	loc, err := time.LoadLocation(storeDefault(profile.Timezone, "UTC"))
-	if err != nil {
-		return 0, fmt.Errorf("load timezone %q: %w", profile.Timezone, err)
 	}
 
 	start, end := dayRangeInLocation(day, loc)
 	return s.store.DeleteHeartbeats(ctx, start.UTC(), end.UTC(), ids)
 }
 
-func (s *QueryService) StatusbarToday(ctx context.Context, now time.Time) (map[string]any, error) {
-	settings, err := s.resolveQuerySettings(ctx, "", nil, nil)
+// StatusbarToday summarizes the current local day. An empty timezone uses the
+// profile timezone, matching the WakaTime status bar contract.
+func (s *QueryService) StatusbarToday(ctx context.Context, now time.Time, timezone string) (map[string]any, error) {
+	settings, err := s.resolveQuerySettings(ctx, timezone, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	start := startOfDay(now.In(settings.location))
-	end := start.Add(24 * time.Hour)
+	end := start.AddDate(0, 0, 1)
 
 	heartbeats, err := s.store.ListHeartbeatsByRange(ctx, start.UTC(), end.UTC())
 	if err != nil {
@@ -71,7 +81,7 @@ func (s *QueryService) StatusbarToday(ctx context.Context, now time.Time) (map[s
 	}
 
 	filtered := filterHeartbeats(heartbeats, settings.writesOnly)
-	return buildDailySummaryMap(filtered, start, now.In(settings.location), settings, false), nil
+	return buildDailySummaryMap(filtered, heartbeats, start, now.In(settings.location), settings, false), nil
 }
 
 func (s *QueryService) FileExperts(ctx context.Context, entity, project string, projectRootCount *int, now time.Time) ([]map[string]any, error) {
@@ -268,6 +278,6 @@ func storeDefault(value, fallback string) string {
 func dayRangeInLocation(day time.Time, loc *time.Location) (start, end time.Time) {
 	local := day.In(loc)
 	start = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
-	end = start.Add(24 * time.Hour)
+	end = start.AddDate(0, 0, 1)
 	return
 }

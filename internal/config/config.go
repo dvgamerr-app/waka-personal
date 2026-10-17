@@ -42,7 +42,7 @@ func Load() *Config {
 		AppAPIKey:               getEnv("APP_API_KEY", ""),
 		KeystrokeTimeoutMinutes: getEnvInt("KEYSTROKE_TIMEOUT_MINUTES", 15),
 		WritesOnly:              getEnvBool("WRITES_ONLY", false),
-		CORSAllowOrigins:        getEnvList("CORS_ALLOW_ORIGINS", []string{"*"}),
+		CORSAllowOrigins:        getEnvList("CORS_ALLOW_ORIGINS", nil),
 		AutoMigrate:             getEnvBool("AUTO_MIGRATE", false),
 		MigrationDir:            getEnv("MIGRATION_DIR", "db/migrations"),
 		GooseTable:              getEnv("GOOSE_TABLE", "goose_db_version"),

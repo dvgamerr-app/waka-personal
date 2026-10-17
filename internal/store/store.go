@@ -332,24 +332,40 @@ func replaceGeneratedSourceMachineNameID(ctx context.Context, db sourceUserAgent
 	return nil
 }
 
+// rowQuerier is the QueryRow subset shared by the pool and a transaction.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// UpsertHeartbeats stores the batch atomically: either every record is saved or
+// none is, so a failed request can be retried as a whole.
 func (s *Store) UpsertHeartbeats(ctx context.Context, records []domain.HeartbeatRecord) ([]domain.HeartbeatRecord, error) {
 	if len(records) == 0 {
 		return nil, nil
 	}
 
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin heartbeat upsert tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	out := make([]domain.HeartbeatRecord, 0, len(records))
 	for i := range records {
-		scanned, err := s.upsertHeartbeatRecord(ctx, &records[i])
+		scanned, err := upsertHeartbeatRecord(ctx, tx, &records[i])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, scanned)
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit heartbeat upsert tx: %w", err)
+	}
 	return out, nil
 }
 
-func (s *Store) upsertHeartbeatRecord(ctx context.Context, record *domain.HeartbeatRecord) (domain.HeartbeatRecord, error) {
+func upsertHeartbeatRecord(ctx context.Context, q rowQuerier, record *domain.HeartbeatRecord) (domain.HeartbeatRecord, error) {
 	dependencies, err := json.Marshal(record.Dependencies)
 	if err != nil {
 		return domain.HeartbeatRecord{}, fmt.Errorf("marshal dependencies for %s: %w", record.Entity, err)
@@ -360,7 +376,7 @@ func (s *Store) upsertHeartbeatRecord(ctx context.Context, record *domain.Heartb
 		importBatchID = *record.ImportBatchID
 	}
 
-	result, err := s.scanUpsertedHeartbeat(ctx, record, dependencies, importBatchID)
+	result, err := scanUpsertedHeartbeat(ctx, q, record, dependencies, importBatchID)
 	if err != nil {
 		return domain.HeartbeatRecord{}, err
 	}
@@ -387,9 +403,9 @@ type heartbeatUpsertResult struct {
 	importBatchID       any
 }
 
-func (s *Store) scanUpsertedHeartbeat(ctx context.Context, record *domain.HeartbeatRecord, dependencies []byte, importBatchID any) (heartbeatUpsertResult, error) {
+func scanUpsertedHeartbeat(ctx context.Context, q rowQuerier, record *domain.HeartbeatRecord, dependencies []byte, importBatchID any) (heartbeatUpsertResult, error) {
 	result := heartbeatUpsertResult{importBatchID: importBatchID}
-	err := s.db.QueryRow(
+	err := q.QueryRow(
 		ctx,
 		upsertHeartbeatQuery,
 		record.ID,
@@ -612,18 +628,21 @@ func (s *Store) ListModelPricing(ctx context.Context) (map[string]domain.ModelPr
 		FROM ai_model_pricing
 	`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list model pricing: %w", err)
 	}
 	defer rows.Close()
 	out := make(map[string]domain.ModelPricing)
 	for rows.Next() {
 		var p domain.ModelPricing
 		if err := rows.Scan(&p.ModelKey, &p.DisplayName, &p.Provider, &p.InputCostPerMTok, &p.OutputCostPerMTok); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan model pricing: %w", err)
 		}
 		out[p.ModelKey] = p
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model pricing: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Store) GetProfileSnapshot(ctx context.Context) (*domain.ProfileSnapshot, error) {
@@ -1279,7 +1298,7 @@ const insertTempImportRowsQuery = `
 			SELECT DISTINCT ON (dedupe_hash) *
 			FROM import_heartbeats_tmp
 			ORDER BY dedupe_hash, source_created_at DESC NULLS LAST, time DESC
-		)
+		), upserted AS (
 		INSERT INTO heartbeats (
 			id, source_heartbeat_id, dedupe_hash, time, source_created_at, entity, type, category,
 			project, branch, language, project_root_count, project_folder, lineno, cursorpos,
@@ -1330,14 +1349,20 @@ const insertTempImportRowsQuery = `
 			ai_output_tokens = EXCLUDED.ai_output_tokens,
 			ai_prompt_length = EXCLUDED.ai_prompt_length,
 			updated_at = NOW()
+		RETURNING (xmax = 0) AS inserted
+		)
+		SELECT COUNT(*) FILTER (WHERE inserted) FROM upserted
 	`
 
+// insertTempImportRows upserts the staged rows and returns how many were newly
+// inserted; rows that matched an existing dedupe_hash are refreshed in place
+// and counted as skipped by the caller.
 func insertTempImportRows(ctx context.Context, tx pgx.Tx) (int64, error) {
-	tag, err := tx.Exec(ctx, insertTempImportRowsQuery)
-	if err != nil {
+	var inserted int64
+	if err := tx.QueryRow(ctx, insertTempImportRowsQuery).Scan(&inserted); err != nil {
 		return 0, fmt.Errorf("insert temp import rows: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return inserted, nil
 }
 
 func rollbackImportTx(ctx context.Context, tx pgx.Tx) error {

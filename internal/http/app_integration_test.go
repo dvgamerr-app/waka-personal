@@ -238,3 +238,38 @@ func resolveRepoRoot(t *testing.T) string {
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
+
+func TestUpsertHeartbeatsIsAtomic(t *testing.T) {
+	dataStore := newTestStore(t)
+	at := time.Unix(1710000000, 0).UTC()
+	record := func(id, entity string) domain.HeartbeatRecord {
+		return domain.HeartbeatRecord{
+			ID:            id,
+			DedupeHash:    "hash-" + id,
+			Time:          at,
+			Entity:        entity,
+			Type:          "file",
+			Category:      "coding",
+			Dependencies:  []string{},
+			OriginPayload: []byte("{}"),
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// PostgreSQL rejects NUL bytes in text, so the second record fails after the first succeeded.
+	if _, err := dataStore.UpsertHeartbeats(ctx, []domain.HeartbeatRecord{record("ok", "/valid.go"), record("bad", "/bad\x00.go")}); err == nil {
+		t.Fatal("expected the batch with an invalid record to fail")
+	}
+	if records := listHeartbeatRecords(t, dataStore, at); len(records) != 0 {
+		t.Fatalf("a failed batch must not leave partial rows, found %d", len(records))
+	}
+
+	if _, err := dataStore.UpsertHeartbeats(ctx, []domain.HeartbeatRecord{record("ok", "/valid.go")}); err != nil {
+		t.Fatalf("retrying the valid record failed: %v", err)
+	}
+	if records := listHeartbeatRecords(t, dataStore, at); len(records) != 1 {
+		t.Fatalf("expected 1 row after the retry, found %d", len(records))
+	}
+}

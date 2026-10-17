@@ -74,7 +74,10 @@
 - **Startup migrations are opt-in** — the API runs `goose up` only when `AUTO_MIGRATE=true` (set by `docker-compose.yml`); otherwise run `go run ./cmd/migrate up`
 - **docker-compose uses `postgres:18`**, which needs the volume at `/var/lib/postgresql`, not `/var/lib/postgresql/data`
 - **DuckDB importer** is behind a build tag (`importer_duckdb.go` + stub `importer_duckdb_stub.go`) — normal builds use the stub
-- **Import batches are not auto-cleaned** on failure; retry is safe due to SHA256 deduplication
+- **Import batches are not auto-cleaned** on failure; retry is safe because heartbeats are matched by `dedupe_hash` and refreshed in place (the SHA-256 unique index was dropped)
+- **AI tokens and spend ignore `writes_only`** and every heartbeat counts, even with a zero-length interval; only time and line metrics honor it
+- **CORS is off by default**; set `CORS_ALLOW_ORIGINS` to allow other browser origins
+- **`/api/v2/*` is intentionally unauthenticated** (the web UI cannot hold a key); keep the port on a trusted network or behind an authenticating proxy
 - **WakaTime plugins send API key as Basic-auth username** — `Authorization: Basic base64(<key>:)`
 - When modifying heartbeat schema, check both the API ingest path AND the importer path
 
