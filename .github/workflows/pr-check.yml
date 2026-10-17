@@ -65,9 +65,13 @@ jobs:
           go mod tidy -diff
       - name: Unit and integration tests
         if: ${{ !cancelled() }}
+        run: go test -count=1 ./...
+      - name: Site tests
+        if: ${{ !cancelled() }}
+        working-directory: site
         run: |
-          go test -count=1 ./...
-          cd site && bun install --frozen-lockfile && bun test
+          bun install --frozen-lockfile
+          bun test
       - name: Production build
         if: ${{ !cancelled() }}
         run: |
