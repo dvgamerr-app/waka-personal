@@ -39,20 +39,16 @@ export const normalizeWakaTime = (text) => {
 
 export const formatPercent = (value) => `${Math.round(Number(value) || 0)}%`
 
+const compactCount = (n, unit, divisor) => {
+  const compact = n / divisor
+  return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/.0$/, '')}${unit}`
+}
+
 export const formatCount = (value) => {
   const n = Math.round(Number(value) || 0)
-  if (n >= 1000000000) {
-    const compact = n / 1000000000
-    return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/\.0$/, '')}B`
-  }
-  if (n >= 1000000) {
-    const compact = n / 1000000
-    return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/\.0$/, '')}M`
-  }
-  if (n >= 1000) {
-    const compact = n / 1000
-    return `${compact >= 10 ? Math.round(compact) : compact.toFixed(1).replace(/\.0$/, '')}K`
-  }
+  if (n >= 999_500_000) return compactCount(n, 'B', 1e9)
+  if (n >= 999_500) return compactCount(n, 'M', 1e6)
+  if (n >= 1000) return compactCount(n, 'K', 1e3)
   return String(n)
 }
 
@@ -63,6 +59,13 @@ export const formatSpend = (cents) => {
   return `$${dollars.toFixed(2)}`
 }
 
+export const formatLocalDate = (date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export const formatDayLabel = (value) => {
   if (!value) return ''
   const date = new Date(`${value}T00:00:00`)
@@ -70,12 +73,6 @@ export const formatDayLabel = (value) => {
 }
 
 export const topItems = (items, limit = 5) => normalizeItems(items).slice(0, limit)
-
-export const enrichItemsWithColor = (items, limit = 6) =>
-  topItems(items, limit).map((item, index) => ({
-    ...item,
-    color: palette[index % palette.length],
-  }))
 
 export const buildTrendSeries = (summaries) => {
   const days = normalizeItems(summaries)
@@ -127,88 +124,6 @@ export const buildTrendSeries = (summaries) => {
     }
   })
 }
-
-export const buildTimelineRows = (durations, key, start, end) => {
-  const windowStart = new Date(start || 0).getTime() / 1000
-  const windowEnd = new Date(end || 0).getTime() / 1000
-  const windowSize = Math.max(1, windowEnd - windowStart)
-  const grouped = new Map()
-  normalizeItems(durations).forEach((item) => {
-    const name = item[key] || 'Unknown'
-    const time = Number(item.time) || 0
-    const duration = Number(item.duration) || 0
-    const left = Math.max(0, Math.min(100, ((time - windowStart) / windowSize) * 100))
-    const width = Math.max(0.6, (duration / windowSize) * 100)
-    const current = grouped.get(name) || { name, totalSeconds: 0, segments: [] }
-    current.totalSeconds += duration
-    current.segments.push({
-      left,
-      width,
-      duration,
-      color: palette[grouped.size % palette.length],
-    })
-    grouped.set(name, current)
-  })
-
-  return Array.from(grouped.values())
-    .sort((left, right) => right.totalSeconds - left.totalSeconds)
-    .slice(0, 7)
-}
-
-export const buildDailyBreakdownRows = (summaries, key) => {
-  const days = normalizeItems(summaries)
-  const totalDays = Math.max(1, days.length)
-  const grouped = new Map()
-
-  days.forEach((day, dayIndex) => {
-    normalizeItems(day[key]).forEach((item) => {
-      const name = item.name || 'Unknown'
-      const seconds = Number(item.total_seconds) || 0
-      if (!grouped.has(name)) grouped.set(name, { name, totalSeconds: 0, rawSegments: [] })
-      const row = grouped.get(name)
-      row.totalSeconds += seconds
-      if (seconds > 0) {
-        row.rawSegments.push({
-          dayIndex,
-          left: (dayIndex / totalDays) * 100,
-          width: Math.max(0.8, (1 / totalDays) * 100 - 0.4),
-          duration: seconds,
-          date: day.range?.date,
-        })
-      }
-    })
-  })
-
-  return Array.from(grouped.values())
-    .sort((a, b) => b.totalSeconds - a.totalSeconds)
-    .slice(0, 7)
-    .map((row, i) => ({
-      name: row.name,
-      totalSeconds: row.totalSeconds,
-      segments: row.rawSegments.map((seg) => ({ ...seg, color: palette[i % palette.length] })),
-    }))
-}
-
-export const buildDeltaSeries = (summaries) =>
-  normalizeItems(summaries).map((day) => ({
-    date: day.range?.date,
-    label: formatDayLabel(day.range?.date),
-    aiAdditions: Number(day.grand_total?.ai_additions) || 0,
-    aiDeletions: Number(day.grand_total?.ai_deletions) || 0,
-    humanAdditions: Number(day.grand_total?.human_additions) || 0,
-    humanDeletions: Number(day.grand_total?.human_deletions) || 0,
-  }))
-
-export const maxDeltaValue = (series) =>
-  Math.max(
-    1,
-    ...normalizeItems(series).flatMap((item) => [
-      item.aiAdditions,
-      item.aiDeletions,
-      item.humanAdditions,
-      item.humanDeletions,
-    ])
-  )
 
 export const computeRangeStats = (summaries) => {
   const days = normalizeItems(summaries)

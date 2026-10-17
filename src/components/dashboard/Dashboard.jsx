@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Activity, AlertTriangle, Code2, Cpu, Terminal, Zap } from 'lucide-react'
 import { ThemeProvider } from '@/stores/theme'
 import DateRangePicker from './DateRangePicker'
@@ -6,6 +6,7 @@ import {
   buildTrendSeries,
   computeRangeStats,
   formatCount,
+  formatLocalDate,
   formatPercent,
   formatShortDuration,
   formatSpend,
@@ -295,7 +296,7 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
         </div>
         <div className="text-right">
           <span className="block text-[11px] tracking-[0.24em] text-zinc-500 uppercase">
-            Current Peak
+            Range Average
           </span>
           <span className="font-mono text-sm font-medium text-sky-300">
             {formatCount(locPerHour)} LOC/hr
@@ -324,7 +325,7 @@ const AiSplit = ({ stats, topProject, rangeStats }) => {
       <div className="mt-6 grid gap-5 border-t border-zinc-900 pt-5 sm:grid-cols-2 xl:grid-cols-4">
         <MicroMetric
           label="Review Density"
-          value={`${formatPercent(percent)} · ${formatCount(totalChanges)} sessions`}
+          value={`${formatPercent(percent)} · ${formatCount(totalChanges)} line changes`}
         />
         <MicroMetric
           label="Human Follow-up"
@@ -478,11 +479,9 @@ const AgentStations = ({ aiModels }) => {
   const rows = topItems(aiModels, 4)
 
   const getStatus = (index) => {
-    if (index === 0)
-      return { label: 'Active', textColor: 'text-sky-300', dotClass: 'animate-pulse bg-sky-300' }
-    if (index === 1)
-      return { label: 'Standby', textColor: 'text-zinc-500', dotClass: 'bg-zinc-500' }
-    return { label: 'Idle', textColor: 'text-zinc-600', dotClass: 'bg-zinc-700' }
+    if (index === 0) return { label: 'Top', textColor: 'text-sky-300', dotClass: 'bg-sky-300' }
+    if (index === 1) return { label: '2nd', textColor: 'text-zinc-500', dotClass: 'bg-zinc-500' }
+    return { label: `#${index + 1}`, textColor: 'text-zinc-600', dotClass: 'bg-zinc-700' }
   }
 
   return (
@@ -534,11 +533,15 @@ const osAbbr = (name) => {
 }
 
 const EditorUsage = ({ editors, operatingSystems, machineCount }) => {
-  const normalized = normalizeItems(editors).map((e) => ({
-    name: e.editor || e.name || 'Unknown',
-    total_seconds: e.duration || e.total_seconds || 0,
-    percent: e.percent,
-  }))
+  // Duration slices repeat an editor once per session, so merge them by name.
+  const merged = new Map()
+  normalizeItems(editors).forEach((e) => {
+    const name = e.editor || e.name || 'Unknown'
+    const current = merged.get(name) || { name, total_seconds: 0, percent: e.percent }
+    current.total_seconds += Number(e.duration || e.total_seconds) || 0
+    merged.set(name, current)
+  })
+  const normalized = Array.from(merged.values()).sort((a, b) => b.total_seconds - a.total_seconds)
   const rows = topItems(normalized, 4)
   const total = rows.reduce((sum, e) => sum + (Number(e.total_seconds) || 0), 0)
   const osSplit = topItems(normalizeItems(operatingSystems), 3)
@@ -633,7 +636,13 @@ function DashboardContent({ config }) {
     return { from: new Date(`${start}T00:00:00`), to: new Date(`${end}T00:00:00`) }
   })
 
+  // Only the newest request may update state, so a slow earlier response
+  // can no longer overwrite the range the user selected last.
+  const dashboardRequest = useRef(0)
+  const liveRequest = useRef(0)
+
   const fetchDashboard = async ({ range, start, end, silent = false }) => {
+    const requestId = ++dashboardRequest.current
     if (!silent) setLoading(true)
     try {
       const timezone = dashData.timezone || fallbackTimezone
@@ -644,6 +653,7 @@ function DashboardContent({ config }) {
         start,
         end,
       })
+      if (requestId !== dashboardRequest.current) return
       setDashData(nextData)
       setLiveData((prev) => ({
         ...prev,
@@ -659,11 +669,12 @@ function DashboardContent({ config }) {
         errors: [error instanceof Error ? error.message : 'Failed to load dashboard data'],
       }))
     } finally {
-      if (!silent) setLoading(false)
+      if (!silent && requestId === dashboardRequest.current) setLoading(false)
     }
   }
 
   const refreshLive = async () => {
+    const requestId = ++liveRequest.current
     setLiveLoading(true)
     try {
       const timezone = dashData.timezone || fallbackTimezone
@@ -671,6 +682,7 @@ function DashboardContent({ config }) {
         base: effectiveConfig.apiBase || '',
         timezone,
       })
+      if (requestId !== liveRequest.current) return
       setLiveData(nextLive)
     } catch (error) {
       setLiveData((prev) => ({
@@ -680,17 +692,19 @@ function DashboardContent({ config }) {
         errors: [error instanceof Error ? error.message : 'Failed to load live data'],
       }))
     } finally {
-      setLiveLoading(false)
+      if (requestId === liveRequest.current) setLiveLoading(false)
     }
   }
 
   useEffect(() => {
+    // The dates were parsed as local midnight, so format them as local dates;
+    // toISOString() would shift them back a day east of UTC.
     fetchDashboard(
       initialCustomRange
         ? {
             range: null,
-            start: initialCustomRange.from.toISOString().slice(0, 10),
-            end: initialCustomRange.to.toISOString().slice(0, 10),
+            start: formatLocalDate(initialCustomRange.from),
+            end: formatLocalDate(initialCustomRange.to),
           }
         : { range: selectedRange }
     )
@@ -708,12 +722,18 @@ function DashboardContent({ config }) {
   const stats = dashData.stats || {}
   const summaries = useMemo(() => normalizeItems(dashData.summaries), [dashData.summaries])
   const today = hasObjectData(liveData.today) ? liveData.today : dashData.today || {}
-  const liveProjects = liveData.projectDurations.length
-    ? liveData.projectDurations
-    : dashData.projectDurations || []
-  const liveLanguages = liveData.languageDurations.length
-    ? liveData.languageDurations
-    : dashData.languageDurations || []
+  // A single past day must show that day's durations; the live feed only
+  // describes today, so it may override the range data only for "Today".
+  const showRangeDurations =
+    selectedRange !== 'Today' && isSingleDayRange({ range: selectedRange, summaries })
+  const liveProjects =
+    !showRangeDurations && liveData.projectDurations.length
+      ? liveData.projectDurations
+      : dashData.projectDurations || []
+  const liveLanguages =
+    !showRangeDurations && liveData.languageDurations.length
+      ? liveData.languageDurations
+      : dashData.languageDurations || []
   const errors = useMemo(
     () => normalizeItems([...(dashData.errors || []), ...(liveData.errors || [])]),
     [dashData.errors, liveData.errors]
@@ -734,7 +754,6 @@ function DashboardContent({ config }) {
 
   const topProjects = useMemo(() => topItems(rangeStats?.projects, 8), [rangeStats])
   const topLanguages = useMemo(() => topItems(rangeStats?.languages, 8), [rangeStats])
-  const topMachines = useMemo(() => topItems(rangeStats?.machines, 6), [rangeStats])
   const topEditors = useMemo(() => {
     const items = rangeStats?.editors?.length ? rangeStats.editors : stats.editors
     return topItems(items, 6)
@@ -946,7 +965,7 @@ function DashboardContent({ config }) {
             <EditorUsage
               editors={topEditors.length ? topEditors : dashData.editorDurations || []}
               operatingSystems={topOperatingSystems}
-              machineCount={topMachines.length}
+              machineCount={rangeStats?.machines?.length ?? 0}
             />
             <RankedList
               title="LANGUAGE_INDEX"

@@ -4,11 +4,9 @@ import SyntaxShell from '@/components/dashboard/SyntaxShell.astro'
 import WrappedView from '@/components/dashboard/Wrapped'
 import YearPicker from '@/components/dashboard/YearPicker'
 import { dashboardConfig } from '@/lib/dashboardConfig.js'
-
-const year = new Date().getFullYear()
 ---
 
-<Layout title={`Waka Personal Wrapped ${year}`}>
+<Layout title="Waka Personal Wrapped">
   <SyntaxShell
     active="wrapped"
     command="wrapped --year=2XXX"
@@ -16,6 +14,6 @@ const year = new Date().getFullYear()
     meta={[`Timezone: ${dashboardConfig.timezone}`]}
   >
     <YearPicker client:load slot="nav-right" />
-    <WrappedView client:load config={dashboardConfig} year={year} />
+    <WrappedView client:load config={dashboardConfig} />
   </SyntaxShell>
 </Layout>

@@ -19,9 +19,20 @@ export default function YearPicker() {
 
   useEffect(() => {
     const handler = (e) => setYear(e.detail)
+    // Browser back/forward changes the URL without firing year-change.
+    const onPopState = () => {
+      const param = Number(new URLSearchParams(window.location.search).get('year'))
+      const next = param || currentYear
+      setYear(next)
+      window.dispatchEvent(new CustomEvent('year-change', { detail: next }))
+    }
     window.addEventListener('year-change', handler)
-    return () => window.removeEventListener('year-change', handler)
-  }, [])
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      window.removeEventListener('year-change', handler)
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [currentYear])
 
   return (
     <div className="flex items-center border border-zinc-800 text-[11px] tracking-[0.2em] text-zinc-400 uppercase">
