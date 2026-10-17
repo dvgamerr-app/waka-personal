@@ -7,7 +7,8 @@ export const injectDsn = (html, dsn) => {
   if (!dsn) return html
   if (!dsn.includes('@')) throw new Error('PUBLIC_TRACEWAY_DSN must look like <token>@<url>')
   const escaped = dsn.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)
-  return html.replace(META, `<meta name="traceway-dsn" content="${escaped}" />`)
+  // A replacer function keeps `$&`, `$1` and similar sequences in the DSN literal.
+  return html.replace(META, () => `<meta name="traceway-dsn" content="${escaped}" />`)
 }
 
 if (import.meta.main) {

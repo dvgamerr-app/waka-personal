@@ -21,6 +21,12 @@ describe('injectDsn', () => {
     )
   })
 
+  test('keeps dollar sequences in the DSN literal', () => {
+    const out = injectDsn(page, 'ab$1$$cd$`x@https://x/y')
+    expect(out).toContain('content="ab$1$$cd$`x@https://x/y"')
+    expect(out.match(/<meta name="traceway-dsn"/g)).toHaveLength(1)
+  })
+
   test('rejects a value without a token part', () => {
     expect(() => injectDsn(page, 'https://otel.example.com/api/report')).toThrow()
   })

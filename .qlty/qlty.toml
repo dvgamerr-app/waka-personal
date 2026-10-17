@@ -70,6 +70,7 @@ name = "gofmt"
 [[plugin]]
 name = "golangci-lint"
 mode = "comment"
+version = "2.13.2"
 
 [[plugin]]
 name = "hadolint"

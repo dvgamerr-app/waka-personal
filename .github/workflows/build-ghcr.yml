@@ -101,14 +101,20 @@ jobs:
           container image pull ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}
 
       - name: Start new container
+        # Secrets go through the environment and are quoted, so characters such as
+        # & ? $ in a connection string cannot split or alter the shell command.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_API_KEY: ${{ secrets.APP_API_KEY }}
+          APP_TIMEZONE: ${{ vars.APP_TIMEZONE }}
         run: |
           container rm -f ${{ env.CONTAINER_NAME }} 2>/dev/null || true
           container run -d \
             --name ${{ env.CONTAINER_NAME }} \
             --cpus 1 --memory 512M \
-            -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
-            -e APP_API_KEY=${{ secrets.APP_API_KEY }} \
-            -e APP_TIMEZONE=${{ vars.APP_TIMEZONE }} \
+            -e "DATABASE_URL=${DATABASE_URL}" \
+            -e "APP_API_KEY=${APP_API_KEY}" \
+            -e "APP_TIMEZONE=${APP_TIMEZONE}" \
             -p 3002:8080 \
             ${{ needs.api.outputs.docker_image }}:${{ needs.api.outputs.version }}
 
