@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -39,7 +39,9 @@ const getPageParams = () => {
   }
 }
 
-const aggregateItems = (summaries, key) => {
+// denominator lets callers express shares of the whole project time even when
+// only part of it is labeled (for example heartbeats that have no branch).
+const aggregateItems = (summaries, key, denominator) => {
   const totals = new Map()
   normalizeItems(summaries).forEach((day) => {
     normalizeItems(day[key]).forEach((item) => {
@@ -49,7 +51,7 @@ const aggregateItems = (summaries, key) => {
   })
   const total = Math.max(
     1,
-    Array.from(totals.values()).reduce((sum, value) => sum + value, 0)
+    Number(denominator) || Array.from(totals.values()).reduce((sum, value) => sum + value, 0)
   )
   return Array.from(totals.entries())
     .map(([name, totalSeconds]) => ({
@@ -272,12 +274,15 @@ const ProjectDetailContent = ({ config }) => {
       : undefined
   )
 
+  const latestRequest = useRef(0)
+
   const loadProject = async ({ range, start, end }) => {
     if (!project) {
       setError('Project name is missing from the URL.')
       setLoading(false)
       return
     }
+    const requestId = ++latestRequest.current
     setLoading(true)
     setError('')
     const { data, error: requestError } = await fetchJson({
@@ -285,6 +290,7 @@ const ProjectDetailContent = ({ config }) => {
       path: '/api/v2/project',
       params: { project, timezone, range, start, end },
     })
+    if (requestId !== latestRequest.current) return
     if (requestError || !data) {
       setError(requestError || 'Failed to load project details.')
       setSummaries([])
@@ -304,8 +310,14 @@ const ProjectDetailContent = ({ config }) => {
 
   const stats = useMemo(() => computeRangeStats(summaries), [summaries])
   const languages = useMemo(() => aggregateItems(summaries, 'languages'), [summaries])
-  const editors = useMemo(() => aggregateItems(summaries, 'editors'), [summaries])
-  const branches = useMemo(() => aggregateItems(summaries, 'branches'), [summaries])
+  const editors = useMemo(
+    () => aggregateItems(summaries, 'editors', stats?.totalSeconds),
+    [summaries, stats]
+  )
+  const branches = useMemo(
+    () => aggregateItems(summaries, 'branches', stats?.totalSeconds),
+    [summaries, stats]
+  )
   const files = useMemo(() => aggregateItems(summaries, 'entities'), [summaries])
   const tokens = useMemo(() => projectTokens(summaries), [summaries])
   const aiMetrics = useMemo(() => projectAIMetrics(summaries), [summaries])
@@ -386,7 +398,7 @@ const ProjectDetailContent = ({ config }) => {
           icon={Clock3}
           label="Focused Time"
           value={stats?.humanReadableTotal || '0s'}
-          note={`${stats?.humanReadableDailyAvg || '0s'} daily average · ${rangeText(summaries)}`}
+          note={`${stats?.humanReadableDailyAvg || '0s'} per active day · ${rangeText(summaries)}`}
         />
         <Kpi
           icon={Bot}
