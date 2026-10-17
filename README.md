@@ -32,18 +32,18 @@ No subscription, no third-party account, no data leaving your machine.
 
 ## Features
 
-|     | Feature                     | What you get                                                                                     |
-| :-: | :-------------------------- | :----------------------------------------------------------------------------------------------- |
-| 🔌  | **WakaTime-compatible API** | Heartbeats, bulk ingest, durations, summaries, stats, status bar and file experts.               |
-| 📊  | **Built-in dashboard**      | Daily totals, languages, projects, editors and a live view that refreshes every 60 seconds.      |
-| 📁  | **Project detail**          | Drill into one project: files, branches, languages and time per day.                             |
-| 💡  | **Insights**                | Focus score, session length, context switches and when your deep work happens.                   |
-| 🎁  | **Wrapped**                 | An annual recap with an activity matrix, peak day, streaks and AI coding stats.                  |
-| 🤖  | **AI coding telemetry**     | AI sessions and token usage, plus a model pricing table for cost estimates.                      |
-| 📦  | **Backup importer**         | Import WakaTime `.json` and `.json.gz` exports from source; re-runs are deduplicated by SHA-256. |
-| 🔐  | **Single-user auth**        | One API key, checked the same way WakaTime plugins send it.                                      |
-| 🛡️  | **Production defaults**     | Rate limiting, security headers, health probes and a non-root container.                         |
-| 🐳  | **Multi-arch image**        | `linux/amd64` and `linux/arm64` on GitHub Container Registry.                                    |
+|     | Feature                     | What you get                                                                                                                                      |
+| :-: | :-------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 🔌  | **WakaTime-compatible API** | Heartbeats, bulk ingest, durations, summaries, stats, status bar and file experts.                                                                |
+| 📊  | **Built-in dashboard**      | Daily totals, languages, projects, editors and a live view that refreshes every 60 seconds.                                                       |
+| 📁  | **Project detail**          | Drill into one project: files, branches, languages and time per day.                                                                              |
+| 💡  | **Insights**                | Active days, daily focus, AI leverage and spend for the last week.                                                                                |
+| 🎁  | **Wrapped**                 | An annual recap with an activity matrix, peak day, streaks and AI coding stats.                                                                   |
+| 🤖  | **AI coding telemetry**     | AI sessions and token usage, plus a model pricing table for cost estimates.                                                                       |
+| 📦  | **Backup importer**         | Import WakaTime `.json` and `.json.gz` exports from source; re-runs do not create duplicates.                                                     |
+| 🔐  | **Single-user auth**        | One API key for the WakaTime API. The dashboard itself has no login: keep it private (see [self-hosting](docs/self-hosting.md#dashboard-access)). |
+| 🛡️  | **Production defaults**     | Rate limiting, security headers, health probes and a non-root container.                                                                          |
+| 🐳  | **Multi-arch image**        | `linux/amd64` and `linux/arm64` on GitHub Container Registry.                                                                                     |
 
 <details>
 <summary><b>More screenshots</b></summary>
