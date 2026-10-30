@@ -1,5 +1,5 @@
 # Stage 1: Build Astro static files
-FROM --platform=$BUILDPLATFORM oven/bun:1.3.14 AS frontend-builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.4 AS frontend-builder
 
 WORKDIR /app
 
