@@ -1,6 +1,6 @@
 module waka-personal
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/duckdb/duckdb-go/v2 v2.10506.0
