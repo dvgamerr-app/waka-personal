@@ -32,18 +32,18 @@
 
 ## ความสามารถ
 
-|     | ความสามารถ                      | ได้อะไร                                                                                             |
-| :-: | :------------------------------ | :-------------------------------------------------------------------------------------------------- |
-| 🔌  | **API แบบ WakaTime**            | Heartbeat, bulk ingest, durations, summaries, stats, status bar และ file experts                    |
-| 📊  | **Dashboard ในตัว**             | เวลารายวัน ภาษา โปรเจกต์ editor และมุมมอง live ที่รีเฟรชทุก 60 วินาที                               |
-| 📁  | **รายละเอียดโปรเจกต์**          | เจาะดูทีละโปรเจกต์: ไฟล์ branch ภาษา และเวลารายวัน                                                  |
-| 💡  | **Insights**                    | Focus score ความยาว session การสลับบริบท และช่วงเวลาที่โฟกัสได้ดีที่สุด                             |
-| 🎁  | **Wrapped**                     | สรุปประจำปีพร้อม activity matrix วันที่ทำงานหนักสุด streak และสถิติ AI coding                       |
-| 🤖  | **ข้อมูล AI coding**            | AI session และจำนวน token พร้อมตารางราคา model สำหรับประเมินค่าใช้จ่าย                              |
-| 📦  | **นำเข้า backup**               | นำเข้าไฟล์ export ของ WakaTime `.json` และ `.json.gz` จาก source นำเข้าซ้ำได้ไม่ซ้ำข้อมูล (SHA-256) |
-| 🔐  | **Auth ผู้ใช้คนเดียว**          | API key เดียว ตรวจแบบเดียวกับที่ WakaTime plugin ส่งมา                                              |
-| 🛡️  | **ค่าเริ่มต้นพร้อม production** | Rate limit, security header, health probe และ container ที่ไม่รันเป็น root                          |
-| 🐳  | **Image หลายสถาปัตยกรรม**       | `linux/amd64` และ `linux/arm64` บน GitHub Container Registry                                        |
+|     | ความสามารถ                 | ได้อะไร                                                                                     |
+| :-: | :------------------------- | :----------------------------------------------------------------------------------------- |
+| 🔌  | **API แบบ WakaTime**       | Heartbeat, bulk ingest, durations, summaries, stats, status bar และ file experts           |
+| 📊  | **Dashboard ในตัว**         | เวลารายวัน ภาษา โปรเจกต์ editor และมุมมอง live ที่รีเฟรชทุก 60 วินาที                               |
+| 📁  | **รายละเอียดโปรเจกต์**       | เจาะดูทีละโปรเจกต์: ไฟล์ branch ภาษา และเวลารายวัน                                              |
+| 💡  | **Insights**               | Focus score ความยาว session การสลับบริบท และช่วงเวลาที่โฟกัสได้ดีที่สุด                               |
+| 🎁  | **Wrapped**                | สรุปประจำปีพร้อม activity matrix วันที่ทำงานหนักสุด streak และสถิติ AI coding                        |
+| 🤖  | **ข้อมูล AI coding**         | AI session และจำนวน token พร้อมตารางราคา model สำหรับประเมินค่าใช้จ่าย                           |
+| 📦  | **นำเข้า backup**           | นำเข้าไฟล์ export ของ WakaTime `.json` และ `.json.gz` จาก source นำเข้าซ้ำได้ไม่ซ้ำข้อมูล (SHA-256) |
+| 🔐  | **Auth ผู้ใช้คนเดียว**         | API key เดียว ตรวจแบบเดียวกับที่ WakaTime plugin ส่งมา                                           |
+| 🛡️  | **ค่าเริ่มต้นพร้อม production** | Rate limit, security header, health probe และ container ที่ไม่รันเป็น root                      |
+| 🐳  | **Image หลายสถาปัตยกรรม**   | `linux/amd64` และ `linux/arm64` บน GitHub Container Registry                               |
 
 <details>
 <summary><b>ภาพหน้าจอเพิ่มเติม</b></summary>

@@ -80,6 +80,7 @@ name = "osv-scanner"
 
 [[plugin]]
 name = "prettier"
+version = "3.10.1"
 package_file = "package.json"
 package_filters = ["prettier", "prettier-plugin-astro", "prettier-plugin-tailwindcss"]
 
