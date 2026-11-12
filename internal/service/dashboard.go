@@ -1128,6 +1128,8 @@ func inferAIModel(record domain.HeartbeatRecord) string {
 var (
 	claudeModelTokenRe = regexp.MustCompile(`(sonnet|opus|haiku|fable)/([0-9][0-9.-]*)`)
 	gptModelTokenRe    = regexp.MustCompile(`gpt/([0-9]+(?:\.[0-9]+)?)((?:-[a-z]+)*)`)
+	modelVersionRe     = regexp.MustCompile(`(?:^|[\s(,=])(gemini|glm|deepseek|qwen|grok|kimi|minimax)/([0-9][a-z0-9.:-]*[a-z0-9]|[0-9])(?:[\s),]|$)`)
+	otherModelTokenRe  = regexp.MustCompile(`(?:^|[\s(,=])((?:[a-z0-9_-]+/)?(?:claude-|gpt-|o[134](?:-|\b)|gemini-|glm-|deepseek-|qwen[0-9.-]*-|grok-|kimi-|minimax-|mistral-|ministral-|codestral-|devstral-|command-|nova-|llama-|nemotron-|mimo-|seed-)[a-z0-9.:-]*)(?:[\s),]|$)`)
 	modelEffortWords   = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 )
 
@@ -1138,6 +1140,13 @@ func inferSpecificAIModel(record domain.HeartbeatRecord) (string, bool) {
 	plugin := strings.ToLower(record.Plugin)
 	if plugin == "" {
 		return "", false
+	}
+
+	if m := otherModelTokenRe.FindStringSubmatch(plugin); m != nil {
+		return m[1], true
+	}
+	if m := modelVersionRe.FindStringSubmatch(plugin); m != nil {
+		return m[1] + "-" + m[2], true
 	}
 
 	if m := claudeModelTokenRe.FindStringSubmatch(plugin); m != nil {
