@@ -116,7 +116,15 @@ func (s *Store) Close() {
 }
 
 func (s *Store) ResolveSourceUserAgentID(ctx context.Context, preferredID, userAgent string) (string, error) {
-	id, err := upsertSourceUserAgent(ctx, s.db, preferredID, userAgent, "api")
+	var id string
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if err := lockSourceIdentities(ctx, tx); err != nil {
+			return err
+		}
+		var err error
+		id, err = upsertSourceUserAgent(ctx, tx, preferredID, userAgent, "api")
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("resolve source user agent: %w", err)
 	}
@@ -143,7 +151,12 @@ func upsertSourceUserAgent(ctx context.Context, db sourceUserAgentDB, preferredI
 
 	id := preferredID
 	if id == "" {
-		id = uuid.NewString()
+		err := db.QueryRow(ctx, `SELECT id FROM source_user_agents WHERE user_agent = $1`, userAgent).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			id = uuid.NewString()
+		} else if err != nil {
+			return "", fmt.Errorf("lookup source user_agent: %w", err)
+		}
 	}
 
 	var resolvedID string
@@ -158,24 +171,8 @@ func upsertSourceUserAgent(ctx context.Context, db sourceUserAgentDB, preferredI
 			updated_at = NOW()
 		RETURNING id
 	`, id, userAgent, agentKey, agentName, source).Scan(&resolvedID)
-	if err == nil {
-		return resolvedID, nil
-	}
-	if !IsUniqueViolation(err) || userAgent == "" {
-		return "", fmt.Errorf("upsert source user agent: %w", err)
-	}
-
-	err = db.QueryRow(ctx, `
-		UPDATE source_user_agents
-		SET ai_agent_key = COALESCE(NULLIF($2, ''), ai_agent_key),
-			ai_agent_name = COALESCE(NULLIF($3, ''), ai_agent_name),
-			source = $4,
-			updated_at = NOW()
-		WHERE user_agent = $1
-		RETURNING id
-	`, userAgent, agentKey, agentName, source).Scan(&resolvedID)
 	if err != nil {
-		return "", fmt.Errorf("lookup source user agent by user_agent: %w", err)
+		return "", fmt.Errorf("upsert source user_agent: %w", err)
 	}
 	return resolvedID, nil
 }
@@ -198,7 +195,12 @@ func replaceGeneratedSourceUserAgentID(ctx context.Context, db sourceUserAgentDB
 		return nil
 	}
 
-	_, err = db.Exec(ctx, `
+	var preferredExists bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM source_user_agents WHERE id = $1)`, preferredID).Scan(&preferredExists); err != nil {
+		return fmt.Errorf("lookup preferred source user_agent: %w", err)
+	}
+	if !preferredExists {
+		_, err = db.Exec(ctx, `
 		UPDATE source_user_agents
 		SET id = $1,
 			ai_agent_key = COALESCE(NULLIF($3, ''), ai_agent_key),
@@ -207,11 +209,10 @@ func replaceGeneratedSourceUserAgentID(ctx context.Context, db sourceUserAgentDB
 			updated_at = NOW()
 		WHERE id = $2
 	`, preferredID, existingID, agentKey, agentName, source)
-	if err == nil {
+		if err != nil {
+			return fmt.Errorf("replace source user_agent id: %w", err)
+		}
 		return nil
-	}
-	if !IsUniqueViolation(err) {
-		return fmt.Errorf("replace generated source user agent id: %w", err)
 	}
 
 	if _, err := db.Exec(ctx, `
@@ -228,7 +229,15 @@ func replaceGeneratedSourceUserAgentID(ctx context.Context, db sourceUserAgentDB
 }
 
 func (s *Store) ResolveSourceMachineNameID(ctx context.Context, preferredID, machineName string) (string, error) {
-	id, err := upsertSourceMachineName(ctx, s.db, preferredID, machineName, "api")
+	var id string
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if err := lockSourceIdentities(ctx, tx); err != nil {
+			return err
+		}
+		var err error
+		id, err = upsertSourceMachineName(ctx, tx, preferredID, machineName, "api")
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("resolve source machine name: %w", err)
 	}
@@ -254,7 +263,12 @@ func upsertSourceMachineName(ctx context.Context, db sourceUserAgentDB, preferre
 
 	id := preferredID
 	if id == "" {
-		id = uuid.NewString()
+		err := db.QueryRow(ctx, `SELECT id FROM source_machine_names WHERE machine_name = $1`, machineName).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			id = uuid.NewString()
+		} else if err != nil {
+			return "", fmt.Errorf("lookup source machine_name: %w", err)
+		}
 	}
 
 	var resolvedID string
@@ -267,22 +281,8 @@ func upsertSourceMachineName(ctx context.Context, db sourceUserAgentDB, preferre
 			updated_at = NOW()
 		RETURNING id
 	`, id, machineName, source).Scan(&resolvedID)
-	if err == nil {
-		return resolvedID, nil
-	}
-	if !IsUniqueViolation(err) || machineName == "" {
-		return "", fmt.Errorf("upsert source machine name: %w", err)
-	}
-
-	err = db.QueryRow(ctx, `
-		UPDATE source_machine_names
-		SET source = $2,
-			updated_at = NOW()
-		WHERE machine_name = $1
-		RETURNING id
-	`, machineName, source).Scan(&resolvedID)
 	if err != nil {
-		return "", fmt.Errorf("lookup source machine name by machine_name: %w", err)
+		return "", fmt.Errorf("upsert source machine_name: %w", err)
 	}
 	return resolvedID, nil
 }
@@ -305,18 +305,22 @@ func replaceGeneratedSourceMachineNameID(ctx context.Context, db sourceUserAgent
 		return nil
 	}
 
-	_, err = db.Exec(ctx, `
+	var preferredExists bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM source_machine_names WHERE id = $1)`, preferredID).Scan(&preferredExists); err != nil {
+		return fmt.Errorf("lookup preferred source machine_name: %w", err)
+	}
+	if !preferredExists {
+		_, err = db.Exec(ctx, `
 		UPDATE source_machine_names
 		SET id = $1,
 			source = $3,
 			updated_at = NOW()
 		WHERE id = $2
 	`, preferredID, existingID, source)
-	if err == nil {
+		if err != nil {
+			return fmt.Errorf("replace source machine_name id: %w", err)
+		}
 		return nil
-	}
-	if !IsUniqueViolation(err) {
-		return fmt.Errorf("replace generated source machine name id: %w", err)
 	}
 
 	if _, err := db.Exec(ctx, `
@@ -328,6 +332,14 @@ func replaceGeneratedSourceMachineNameID(ctx context.Context, db sourceUserAgent
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM source_machine_names WHERE id = $1`, existingID); err != nil {
 		return fmt.Errorf("delete generated source machine name id: %w", err)
+	}
+	return nil
+}
+
+// Hold through heartbeat writes so a preferred-ID change cannot invalidate an in-flight FK.
+func lockSourceIdentities(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `LOCK TABLE source_user_agents, source_machine_names IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return fmt.Errorf("lock source identities: %w", err)
 	}
 	return nil
 }
@@ -354,13 +366,37 @@ func (s *Store) UpsertHeartbeats(ctx context.Context, records []domain.Heartbeat
 		}
 	}()
 
+	if err := lockSourceIdentities(ctx, tx); err != nil {
+		return nil, err
+	}
+	records = append([]domain.HeartbeatRecord(nil), records...)
 	out = make([]domain.HeartbeatRecord, 0, len(records))
 	for i := range records {
+		var err error
+		records[i].SourceUserAgentID, err = upsertSourceUserAgent(ctx, tx, records[i].SourceUserAgentID, records[i].Plugin, "api")
+		if err != nil {
+			return nil, err
+		}
+		records[i].SourceMachineNameID, err = upsertSourceMachineName(ctx, tx, records[i].SourceMachineNameID, records[i].MachineName, "api")
+		if err != nil {
+			return nil, err
+		}
 		scanned, upsertErr := upsertHeartbeatRecord(ctx, tx, &records[i])
 		if upsertErr != nil {
 			return nil, upsertErr
 		}
 		out = append(out, scanned)
+	}
+	if len(out) > 1 {
+		// Later preferred IDs cascade to earlier heartbeats in the same batch.
+		for i := range out {
+			if err := tx.QueryRow(ctx, `
+				SELECT COALESCE(source_user_agent_id, ''), COALESCE(source_machine_name_id, '')
+				FROM heartbeats WHERE id = $1
+			`, out[i].ID).Scan(&out[i].SourceUserAgentID, &out[i].SourceMachineNameID); err != nil {
+				return nil, fmt.Errorf("refresh heartbeat source ids: %w", err)
+			}
+		}
 	}
 
 	if commitErr := tx.Commit(ctx); commitErr != nil {
@@ -858,6 +894,9 @@ func (s *Store) ImportHeartbeatsFromCSV(ctx context.Context, csvPath, batchID st
 	}
 	if copyErr := copyHeartbeatCSVIntoTempTable(ctx, tx, csvPath, batchID); copyErr != nil {
 		return 0, 0, copyErr
+	}
+	if err := lockSourceIdentities(ctx, tx); err != nil {
+		return 0, 0, err
 	}
 	if userAgentErr := upsertTempSourceUserAgents(ctx, tx); userAgentErr != nil {
 		return 0, 0, userAgentErr

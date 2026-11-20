@@ -98,6 +98,100 @@ func performBulkHeartbeatRequest(t *testing.T, app *fiber.App, machineName, body
 	return resp
 }
 
+func TestHeartbeatsResolveSourceIDs(t *testing.T) {
+	dataStore := newTestStore(t)
+	app := apihttp.NewApp(&config.Config{AppTimezone: "UTC", KeystrokeTimeoutMinutes: 15}, &apihttp.Checker{}, apihttp.Services{
+		Auth: stubAuth{}, Heartbeats: service.NewHeartbeatService(dataStore), Query: stubQuery{},
+	})
+	at := time.Unix(1710000000, 0).UTC()
+	send := func(id, agentID, machineID, plugin, machine string) error {
+		body := fmt.Sprintf(`[{"id":%q,"entity":"/main.go","type":"file","time":1710000000,"plugin":%q,"user_agent_id":%q,"machine_name_id":%q}]`, id, plugin, agentID, machineID)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/current/heartbeats.bulk", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Machine-Name", machine)
+		resp, err := app.Test(req, 30000)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusAccepted {
+			return fmt.Errorf("heartbeat %s: expected 202, got %d", id, resp.StatusCode)
+		}
+		return nil
+	}
+	assertIDs := func(wantCount int, agentID, machineID string) {
+		t.Helper()
+		records := listHeartbeatRecords(t, dataStore, at)
+		if len(records) != wantCount {
+			t.Fatalf("expected %d heartbeats, got %d", wantCount, len(records))
+		}
+		for _, record := range records {
+			if record.SourceUserAgentID != agentID || record.SourceMachineNameID != machineID {
+				t.Fatalf("heartbeat %s: expected source IDs %q/%q, got %q/%q", record.SourceHeartbeatID, agentID, machineID, record.SourceUserAgentID, record.SourceMachineNameID)
+			}
+		}
+	}
+	for _, id := range []string{"initial", "same-name"} {
+		if err := send(id, "", "", "codex-test", "machine-a"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := send("preferred", "agent-preferred", "machine-preferred", "codex-test", "machine-a"); err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(3, "agent-preferred", "machine-preferred")
+
+	// A preferred ID that already owns another name must absorb the old row and its FKs.
+	if err := send("target", "agent-target", "machine-target", "other-plugin", "other-machine"); err != nil {
+		t.Fatal(err)
+	}
+	if err := send("merge", "agent-target", "machine-target", "codex-test", "machine-a"); err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(5, "agent-target", "machine-target")
+
+	const workers = 12
+	start := make(chan struct{})
+	results := make(chan error, workers)
+	for i := range workers {
+		go func() {
+			<-start
+			results <- send(fmt.Sprintf("concurrent-%d", i), fmt.Sprintf("agent-%d", i), fmt.Sprintf("machine-%d", i), "codex-test", "machine-a")
+		}()
+	}
+	close(start)
+	for range workers {
+		if err := <-results; err != nil {
+			t.Error(err)
+		}
+	}
+	if t.Failed() {
+		return
+	}
+	if err := send("final", "agent-final", "machine-final", "codex-test", "machine-a"); err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(6+workers, "agent-final", "machine-final")
+
+	batch := `[
+		{"id":"batch-a","entity":"/main.go","time":1710000000,"plugin":"codex-test","user_agent_id":"agent-batch-a","machine_name_id":"machine-batch-a"},
+		{"id":"batch-b","entity":"/main.go","time":1710000000,"plugin":"codex-test","user_agent_id":"agent-batch-b","machine_name_id":"machine-batch-b"}
+	]`
+	records, err := service.NewHeartbeatService(dataStore).Ingest(context.Background(), []byte(batch), "machine-a", nil)
+	if err != nil {
+		t.Fatalf("ingest batch with different preferred IDs: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 returned heartbeats, got %d", len(records))
+	}
+	for _, record := range records {
+		if record.SourceUserAgentID != "agent-batch-b" || record.SourceMachineNameID != "machine-batch-b" {
+			t.Fatalf("returned heartbeat has stale source IDs: %q/%q", record.SourceUserAgentID, record.SourceMachineNameID)
+		}
+	}
+	assertIDs(8+workers, "agent-batch-b", "machine-batch-b")
+}
+
 func assertSuccessfulHeartbeatResponse(t *testing.T, resp *http.Response) {
 	t.Helper()
 
