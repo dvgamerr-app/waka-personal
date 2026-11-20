@@ -40,16 +40,6 @@ func (s *HeartbeatService) Ingest(ctx context.Context, body []byte, machineName 
 		if err != nil {
 			return nil, err
 		}
-		sourceUserAgentID, err := s.store.ResolveSourceUserAgentID(ctx, record.SourceUserAgentID, record.Plugin)
-		if err != nil {
-			return nil, err
-		}
-		record.SourceUserAgentID = sourceUserAgentID
-		sourceMachineNameID, err := s.store.ResolveSourceMachineNameID(ctx, record.SourceMachineNameID, record.MachineName)
-		if err != nil {
-			return nil, err
-		}
-		record.SourceMachineNameID = sourceMachineNameID
 		records = append(records, record)
 	}
 
